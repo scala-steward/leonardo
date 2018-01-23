@@ -89,6 +89,9 @@ if [[ "${ROLE}" == 'Master' ]]; then
       echo "" > /etc/google_application_credentials.env
     fi
 
+    # Authorize access to GCR
+    gcloud docker --authorize-only
+
     # Run docker-compose. This mounts Hadoop, Spark, and other resources inside the docker container.
     docker-compose -f /etc/cluster-docker-compose.yaml up -d
 
