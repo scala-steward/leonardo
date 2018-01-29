@@ -4,23 +4,23 @@ import akka.actor.ActorRef
 import akka.http.scaladsl.model.StatusCodes
 import com.typesafe.scalalogging.LazyLogging
 import java.io.File
+
 import scala.collection.Map
 import cats.data.OptionT
 import cats.implicits._
-import org.broadinstitute.dsde.workbench.google.GoogleIamDAO
-import org.broadinstitute.dsde.workbench.model.google.{GoogleProject, ServiceAccountKey}
+import org.broadinstitute.dsde.workbench.google.{GoogleIamDAO, GoogleStorageDAO}
+import org.broadinstitute.dsde.workbench.model.google.{GcsPath, GoogleProject, ServiceAccountKey}
 import org.broadinstitute.dsde.workbench.leonardo.config.{ClusterFilesConfig, ClusterResourcesConfig, DataprocConfig, ProxyConfig, SwaggerConfig}
-import org.broadinstitute.dsde.workbench.leonardo.dao.DataprocDAO
-import org.broadinstitute.dsde.workbench.leonardo.db.{DataAccess, DbReference}
+import org.broadinstitute.dsde.workbench.leonardo.dao.GoogleDataprocDAO
+import org.broadinstitute.dsde.workbench.leonardo.db.DbReference
 import org.broadinstitute.dsde.workbench.leonardo.model.LeonardoJsonSupport._
-import org.broadinstitute.dsde.workbench.leonardo.model.StringValueClass.LabelMap
 import org.broadinstitute.dsde.workbench.leonardo.model._
+import org.broadinstitute.dsde.workbench.leonardo.model.ClusterRequest._
 import org.broadinstitute.dsde.workbench.leonardo.monitor.ClusterMonitorSupervisor.{ClusterCreated, ClusterDeleted, RegisterLeoService}
-import org.broadinstitute.dsde.workbench.google.gcs._
+import org.broadinstitute.dsde.workbench.model.google._
 import org.broadinstitute.dsde.workbench.leonardo.model.ProjectActions._
 import org.broadinstitute.dsde.workbench.leonardo.model.NotebookClusterActions._
 import org.broadinstitute.dsde.workbench.model.{UserInfo, WorkbenchEmail}
-import slick.dbio.DBIO
 import spray.json._
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -28,17 +28,17 @@ import scala.io.Source
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success}
 
-case class AuthorizationError(email: Option[WorkbenchEmail] = None) extends
-  LeoException(s"${email.map(e => s"'${e.value}'").getOrElse("Your account")} is unauthorized", StatusCodes.Unauthorized)
+case class AuthorizationError(email: Option[WorkbenchEmail] = None)
+  extends LeoException(s"${email.map(e => s"'${e.value}'").getOrElse("Your account")} is unauthorized", StatusCodes.Unauthorized)
 
 case class ClusterNotFoundException(googleProject: GoogleProject, clusterName: ClusterName)
-  extends LeoException(s"Cluster ${googleProject.value}/${clusterName.string} not found", StatusCodes.NotFound)
+  extends LeoException(s"Cluster ${googleProject.value}/${clusterName.value} not found", StatusCodes.NotFound)
 
 case class ClusterAlreadyExistsException(googleProject: GoogleProject, clusterName: ClusterName)
-  extends LeoException(s"Cluster ${googleProject.value}/${clusterName.string} already exists", StatusCodes.Conflict)
+  extends LeoException(s"Cluster ${googleProject.value}/${clusterName.value} already exists", StatusCodes.Conflict)
 
 case class InitializationFileException(googleProject: GoogleProject, clusterName: ClusterName, errorMessage: String)
-  extends LeoException(s"Unable to process initialization files for ${googleProject.value}/${clusterName.string}. Returned message: $errorMessage", StatusCodes.Conflict)
+  extends LeoException(s"Unable to process initialization files for ${googleProject.value}/${clusterName.value}. Returned message: $errorMessage", StatusCodes.Conflict)
 
 case class JupyterExtensionException(gcsUri: GcsPath)
   extends LeoException(s"Jupyter extension URI is invalid or unparseable: ${gcsUri.toUri}", StatusCodes.BadRequest)
@@ -50,31 +50,30 @@ case class IllegalLabelKeyException(labelKey: String)
   extends LeoException(s"Labels cannot have a key of '$labelKey'", StatusCodes.NotAcceptable)
 
 
-class LeonardoService(protected val dataprocConfig: DataprocConfig,
-                      protected val clusterFilesConfig: ClusterFilesConfig,
-                      protected val clusterResourcesConfig: ClusterResourcesConfig,
-                      protected val proxyConfig: ProxyConfig,
-                      protected val swaggerConfig: SwaggerConfig,
-                      protected val gdDAO: DataprocDAO,
-                      protected val googleIamDAO: GoogleIamDAO,
-                      protected val dbRef: DbReference,
-                      protected val clusterMonitorSupervisor: ActorRef,
-                      protected val authProvider: LeoAuthProvider,
-                      protected val serviceAccountProvider: ServiceAccountProvider,
-                      protected val whitelist: Set[String])
-                     (implicit val executionContext: ExecutionContext) extends LazyLogging {
+class LeonardoService private (val dataprocConfig: DataprocConfig,
+                               val clusterFilesConfig: ClusterFilesConfig,
+                               val clusterResourcesConfig: ClusterResourcesConfig,
+                               val proxyConfig: ProxyConfig,
+                               val swaggerConfig: SwaggerConfig,
+                               val gdDAO: GoogleDataprocDAO,
+                               val googleIamDAO: GoogleIamDAO,
+                               val googleStorageDAO: GoogleStorageDAO,
+                               val dbRef: DbReference,
+                               val clusterMonitorSupervisor: ActorRef,
+                               val authProvider: LeoAuthProvider,
+                               val serviceAccountProvider: ServiceAccountProvider,
+                               val leoServiceAccountEmail: WorkbenchEmail,
+                               val whitelist: Set[String])
+                              (implicit val executionContext: ExecutionContext) extends LazyLogging {
 
   private val bucketPathMaxLength = 1024
   private val includeDeletedKey = "includeDeleted"
 
-
-  def isWhitelisted(userInfo: UserInfo): Future[Boolean] = {
-    if( whitelist contains userInfo.userEmail.value.toLowerCase ) {
-      Future.successful(true)
-    } else {
-      Future.failed(new AuthorizationError(Some(userInfo.userEmail)))
-    }
-  }
+  private lazy val firewallRule = FirewallRule(
+    name = FirewallRuleName(proxyConfig.firewallRuleName),
+    ports = List(FirewallRulePort(proxyConfig.jupyterPort.toString)),
+    network = FirewallRuleNetwork(proxyConfig.firewallVPCNetwork),
+    targetTags = List(NetworkTag(proxyConfig.networkTag)))
 
   // Register this instance with the cluster monitor supervisor so our cluster monitor can potentially delete and recreate clusters
   clusterMonitorSupervisor ! RegisterLeoService(this)
@@ -96,6 +95,14 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
         else
           throw ClusterNotFoundException(cluster.googleProject, cluster.clusterName)
       case true => ()
+    }
+  }
+
+  def isWhitelisted(userInfo: UserInfo): Future[Boolean] = {
+    if( whitelist contains userInfo.userEmail.value.toLowerCase ) {
+      Future.successful(true)
+    } else {
+      Future.failed(new AuthorizationError(Some(userInfo.userEmail)))
     }
   }
 
@@ -130,7 +137,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
           // Create the cluster in Google
           (cluster, initBucket, serviceAccountKeyOpt) <- createGoogleCluster(userEmail, serviceAccountInfo, googleProject, clusterName, augmentedClusterRequest)
           // Save the cluster in the database
-          savedCluster <- dbRef.inTransaction(_.clusterQuery.save(cluster, GcsPath(initBucket, GcsRelativePath("")), serviceAccountKeyOpt.map(_.id)))
+          savedCluster <- dbRef.inTransaction(_.clusterQuery.save(cluster, initBucket, serviceAccountKeyOpt.map(_.id)))
         } yield {
           // Notify the cluster monitor that the cluster has been created
           clusterMonitorSupervisor ! ClusterCreated(savedCluster)
@@ -157,7 +164,10 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
 
   def internalGetActiveClusterDetails(googleProject: GoogleProject, clusterName: ClusterName): Future[Cluster] = {
     dbRef.inTransaction { dataAccess =>
-      getActiveCluster(googleProject, clusterName, dataAccess)
+      dataAccess.clusterQuery.getActiveClusterByName(googleProject, clusterName)
+    } map {
+      case None => throw ClusterNotFoundException(googleProject, clusterName)
+      case Some(cluster) => cluster
     }
   }
 
@@ -170,7 +180,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
       _ <- checkClusterPermission(userInfo,  DeleteCluster, cluster, throw401 = true)
 
       _ <- internalDeleteCluster(userInfo.userEmail, cluster)
-    } yield { () }
+    } yield ()
   }
 
   //NOTE: This function MUST ALWAYS complete ALL steps. i.e. if deleting thing1 fails, it must still proceed to delete thing2
@@ -217,17 +227,15 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
           }
         }
       }
-    } yield {
-      visibleClusters
-    }
+    } yield visibleClusters
   }
 
-  private[service] def getActiveCluster(googleProject: GoogleProject, clusterName: ClusterName, dataAccess: DataAccess): DBIO[Cluster] = {
-    dataAccess.clusterQuery.getActiveClusterByName(googleProject, clusterName) flatMap {
-      case None => throw ClusterNotFoundException(googleProject, clusterName)
-      case Some(cluster) => DBIO.successful(cluster)
-    }
-  }
+//  private[service] def getActiveCluster(googleProject: GoogleProject, clusterName: ClusterName, dataAccess: DataAccess): DBIO[Cluster] = {
+//    dataAccess.clusterQuery.getActiveClusterByName(googleProject, clusterName) flatMap {
+//      case None => throw ClusterNotFoundException(googleProject, clusterName)
+//      case Some(cluster) => DBIO.successful(cluster)
+//    }
+//  }
 
   /* Creates a cluster in the given google project:
      - Add a firewall rule to the user's google project if it doesn't exist, so we can access the cluster
@@ -238,14 +246,13 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
                                            serviceAccountInfo: ServiceAccountInfo,
                                            googleProject: GoogleProject,
                                            clusterName: ClusterName,
-                                           clusterRequest: ClusterRequest)
-                                          (implicit executionContext: ExecutionContext): Future[(Cluster, GcsBucketName, Option[ServiceAccountKey])] = {
-    val initBucketName = generateUniqueBucketName(clusterName.string)
+                                           clusterRequest: ClusterRequest): Future[(Cluster, GcsBucketName, Option[ServiceAccountKey])] = {
+    val initBucketName = generateUniqueBucketName(clusterName.value)
     for {
       // Validate that the Jupyter extension URI is a valid URI and references a real GCS object
       _ <- validateJupyterExtensionUri(googleProject, clusterRequest.jupyterExtensionUri)
       // Create the firewall rule in the google project if it doesn't already exist, so we can access the cluster
-      _ <- gdDAO.updateFirewallRule(googleProject)
+      _ <- gdDAO.updateFirewallRule(googleProject, firewallRule)
       // Generate a service account key for the notebook service account (if present) to localize on the cluster.
       // We don't need to do this for the cluster service account because its credentials are already
       // on the metadata server.
@@ -258,13 +265,12 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
       // ACLs are granted so the cluster service account can access the bucket at initialization time.
       initBucketPath <- initializeBucket(userEmail, googleProject, clusterName, initBucketName, clusterRequest, serviceAccountInfo, serviceAccountKeyOpt)
       // Once the bucket is ready, build the cluster
-      cluster <- gdDAO.createCluster(userEmail, googleProject, clusterName, clusterRequest, initBucketName, serviceAccountInfo).andThen { case Failure(_) =>
+    // TODO
+      cluster <- gdDAO.createCluster(googleProject, clusterName, clusterRequest.machineConfig, initBucketName, serviceAccountInfo).andThen { case Failure(_) =>
         // If cluster creation fails, delete the init bucket asynchronously
-        gdDAO.deleteBucket(googleProject, initBucketName)
+        googleStorageDAO.deleteBucket(initBucketName, recurse = true)
       }
-    } yield {
-      (cluster, initBucketPath, serviceAccountKeyOpt)
-    }
+    } yield (cluster, initBucketPath, serviceAccountKeyOpt)
   }
 
   private[service] def generateServiceAccountKey(googleProject: GoogleProject, serviceAccountOpt: Option[WorkbenchEmail]): Future[Option[ServiceAccountKey]] = {
@@ -297,9 +303,9 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
         if (gcsPath.toUri.length > bucketPathMaxLength) {
           throw JupyterExtensionException(gcsPath)
         }
-        gdDAO.bucketObjectExists(googleProject, gcsPath).map {
-          case true => ()
-          case false => throw JupyterExtensionException(gcsPath)
+        googleStorageDAO.getObject(gcsPath.bucketName, gcsPath.objectName).map {
+          case Some(_) => ()
+          case None => throw JupyterExtensionException(gcsPath)
         }
     }
   }
@@ -309,9 +315,26 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
     for {
       // Note the bucket is created in Leo's project, not the cluster's project.
       // ACLs are granted so the cluster's service account can access the bucket at initialization time.
-      _ <- gdDAO.createBucket(dataprocConfig.leoGoogleProject, googleProject, initBucketName, serviceAccountInfo)
+      _ <- googleStorageDAO.createBucket(dataprocConfig.leoGoogleProject, initBucketName)
+      _ <- initializeBucketAcls(googleProject, initBucketName, serviceAccountInfo)
       _ <- initializeBucketObjects(userEmail, googleProject, clusterName, initBucketName, clusterRequest, notebookServiceAccountKeyOpt)
-    } yield { initBucketName }
+    } yield initBucketName
+  }
+
+  private[service] def initializeBucketAcls(googleProject: GoogleProject, initBucketName: GcsBucketName, serviceAccountInfo: ServiceAccountInfo): Future[Unit] = {
+    //Add the Leo SA and the cluster's SA to the ACL list for the bucket
+
+    val transformed = for {
+      leoSa <- OptionT.pure(leoServiceAccountEmail)
+      clusterSa <- OptionT.fromOption(serviceAccountInfo.clusterServiceAccount).orElse(OptionT(gdDAO.getComputeEngineDefaultServiceAccount(googleProject)))
+
+      acls = List(GcsAccessControl(leoSa, Owner), GcsAccessControl(clusterSa, Reader))
+
+      _ <- Future.traverse(acls)(acl => googleStorageDAO.setBucketAccessControl(initBucketName, acl))
+      _ <- Future.traverse(acls)(acl => googleStorageDAO.setDefaultObjectAccessControl(initBucketName, acl))
+    } yield ()
+
+    transformed.value.void
   }
 
   /* Process the templated cluster init script and put all initialization files in the init bucket */
@@ -338,8 +361,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
     // Uploads the service account private key to the init bucket, if defined.
     // This is a no-op if createClusterAsPetServiceAccount is true.
     val uploadPrivateKeyFuture: Future[Unit] = serviceAccountKey.flatMap(_.privateKeyData.decode).map { k =>
-      gdDAO.uploadToBucket(googleProject,
-        GcsPath(initBucketName, GcsRelativePath(ClusterInitValues.serviceAccountCredentialsFilename)), k)
+      googleStorageDAO.storeObject(initBucketName, GcsObjectName(ClusterInitValues.serviceAccountCredentialsFilename), k, "text/plain")
     } getOrElse(Future.successful(()))
 
     // Fill in templated resources with the given replacements
@@ -348,18 +370,18 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
 
     for {
       // Upload the init script to the bucket
-      _ <- gdDAO.uploadToBucket(googleProject, GcsPath(initBucketName, GcsRelativePath(clusterResourcesConfig.initActionsScript.string)), initScriptContent)
+      _ <- googleStorageDAO.storeObject(initBucketName, GcsObjectName(clusterResourcesConfig.initActionsScript.value), initScriptContent, "text/plain")
 
       // Upload the googleSignInJs file to the bucket
-      _ <- gdDAO.uploadToBucket(googleProject, GcsPath(initBucketName, GcsRelativePath(clusterResourcesConfig.jupyterGoogleSignInJs.string)), googleSignInJsContent)
+      _ <- googleStorageDAO.storeObject(initBucketName, GcsObjectName(clusterResourcesConfig.jupyterGoogleSignInJs.value), googleSignInJsContent, "text/plain")
 
       // Upload raw files (like certs) to the bucket
-      _ <- Future.traverse(filesToUpload)(file => gdDAO.uploadToBucket(googleProject, GcsPath(initBucketName, GcsRelativePath(file.getName)), file))
+      _ <- Future.traverse(filesToUpload)(file => googleStorageDAO.storeObject(initBucketName, GcsObjectName(file.getName), file, "text/plain"))
 
       // Upload raw resources (like cluster-docker-compose.yml, site.conf) to the bucket
       _ <- Future.traverse(resourcesToUpload) { resource =>
-        val content = Source.fromResource(s"${ClusterResourcesConfig.basePath}/${resource.string}").mkString
-        gdDAO.uploadToBucket(googleProject, GcsPath(initBucketName, GcsRelativePath(resource.string)), content)
+        val content = Source.fromResource(s"${ClusterResourcesConfig.basePath}/${resource.value}").mkString
+        googleStorageDAO.storeObject(initBucketName, GcsObjectName(resource.value), content, "text/plain")
       }
 
       // Update the private key json, if defined
@@ -378,7 +400,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
   }
 
   private[service] def templateResource(resource: ClusterResource, replacementMap: Map[String, JsValue]): String = {
-    val raw = Source.fromResource(s"${ClusterResourcesConfig.basePath}/${resource.string}").mkString
+    val raw = Source.fromResource(s"${ClusterResourcesConfig.basePath}/${resource.value}").mkString
     template(raw, replacementMap)
   }
 

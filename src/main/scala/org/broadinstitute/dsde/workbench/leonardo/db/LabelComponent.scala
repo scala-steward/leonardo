@@ -1,6 +1,6 @@
 package org.broadinstitute.dsde.workbench.leonardo.db
 
-import org.broadinstitute.dsde.workbench.leonardo.model.StringValueClass.LabelMap
+import org.broadinstitute.dsde.workbench.leonardo.model.ClusterLabels._
 
 case class LabelRecord(clusterId: Long, key: String, value: String)
 
