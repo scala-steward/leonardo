@@ -4,18 +4,20 @@ import akka.actor.ActorRef
 import akka.http.scaladsl.model.StatusCodes
 import com.typesafe.scalalogging.LazyLogging
 import java.io.File
+import java.util.UUID
 
 import scala.collection.Map
 import cats.data.OptionT
 import cats.implicits._
+import com.google.api.services.dataproc.model.Operation
 import org.broadinstitute.dsde.workbench.google.{GoogleIamDAO, GoogleStorageDAO}
 import org.broadinstitute.dsde.workbench.model.google.{GcsPath, GoogleProject, ServiceAccountKey}
-import org.broadinstitute.dsde.workbench.leonardo.config.{ClusterFilesConfig, ClusterResourcesConfig, DataprocConfig, ProxyConfig, SwaggerConfig}
+import org.broadinstitute.dsde.workbench.leonardo.config.{ClusterDefaultsConfig, ClusterFilesConfig, ClusterResourcesConfig, DataprocConfig, ProxyConfig, SwaggerConfig}
 import org.broadinstitute.dsde.workbench.leonardo.dao.GoogleDataprocDAO
 import org.broadinstitute.dsde.workbench.leonardo.db.DbReference
 import org.broadinstitute.dsde.workbench.leonardo.model.LeonardoJsonSupport._
 import org.broadinstitute.dsde.workbench.leonardo.model._
-import org.broadinstitute.dsde.workbench.leonardo.model.ClusterRequest._
+import org.broadinstitute.dsde.workbench.leonardo.model.StringValueClass._
 import org.broadinstitute.dsde.workbench.leonardo.monitor.ClusterMonitorSupervisor.{ClusterCreated, ClusterDeleted, RegisterLeoService}
 import org.broadinstitute.dsde.workbench.model.google._
 import org.broadinstitute.dsde.workbench.leonardo.model.ProjectActions._
@@ -50,21 +52,22 @@ case class IllegalLabelKeyException(labelKey: String)
   extends LeoException(s"Labels cannot have a key of '$labelKey'", StatusCodes.NotAcceptable)
 
 
-class LeonardoService private (val dataprocConfig: DataprocConfig,
-                               val clusterFilesConfig: ClusterFilesConfig,
-                               val clusterResourcesConfig: ClusterResourcesConfig,
-                               val proxyConfig: ProxyConfig,
-                               val swaggerConfig: SwaggerConfig,
-                               val gdDAO: GoogleDataprocDAO,
-                               val googleIamDAO: GoogleIamDAO,
-                               val googleStorageDAO: GoogleStorageDAO,
-                               val dbRef: DbReference,
-                               val clusterMonitorSupervisor: ActorRef,
-                               val authProvider: LeoAuthProvider,
-                               val serviceAccountProvider: ServiceAccountProvider,
-                               val leoServiceAccountEmail: WorkbenchEmail,
-                               val whitelist: Set[String])
-                              (implicit val executionContext: ExecutionContext) extends LazyLogging {
+class LeonardoService private (dataprocConfig: DataprocConfig,
+                               clusterFilesConfig: ClusterFilesConfig,
+                               clusterResourcesConfig: ClusterResourcesConfig,
+                               defaultMachineConfig: ClusterDefaultsConfig,
+                               proxyConfig: ProxyConfig,
+                               swaggerConfig: SwaggerConfig,
+                               gdDAO: GoogleDataprocDAO,
+                               googleIamDAO: GoogleIamDAO,
+                               googleStorageDAO: GoogleStorageDAO,
+                               dbRef: DbReference,
+                               clusterMonitorSupervisor: ActorRef,
+                               authProvider: LeoAuthProvider,
+                               serviceAccountProvider: ServiceAccountProvider,
+                               leoServiceAccountEmail: WorkbenchEmail,
+                               whitelist: Set[String])
+                              (implicit executionContext: ExecutionContext) extends LazyLogging {
 
   private val bucketPathMaxLength = 1024
   private val includeDeletedKey = "includeDeleted"
@@ -98,6 +101,8 @@ class LeonardoService private (val dataprocConfig: DataprocConfig,
     }
   }
 
+  // Note: this is only called by the /isWhitelisted endpoint, which exists to support the FC UI whitelist.
+  // Remove once the FC UI goes GA.
   def isWhitelisted(userInfo: UserInfo): Future[Boolean] = {
     if( whitelist contains userInfo.userEmail.value.toLowerCase ) {
       Future.successful(true)
@@ -230,13 +235,6 @@ class LeonardoService private (val dataprocConfig: DataprocConfig,
     } yield visibleClusters
   }
 
-//  private[service] def getActiveCluster(googleProject: GoogleProject, clusterName: ClusterName, dataAccess: DataAccess): DBIO[Cluster] = {
-//    dataAccess.clusterQuery.getActiveClusterByName(googleProject, clusterName) flatMap {
-//      case None => throw ClusterNotFoundException(googleProject, clusterName)
-//      case Some(cluster) => DBIO.successful(cluster)
-//    }
-//  }
-
   /* Creates a cluster in the given google project:
      - Add a firewall rule to the user's google project if it doesn't exist, so we can access the cluster
      - Create the initialization bucket for the cluster in the leo google project
@@ -265,14 +263,27 @@ class LeonardoService private (val dataprocConfig: DataprocConfig,
       // ACLs are granted so the cluster service account can access the bucket at initialization time.
       initBucketPath <- initializeBucket(userEmail, googleProject, clusterName, initBucketName, clusterRequest, serviceAccountInfo, serviceAccountKeyOpt)
       // Once the bucket is ready, build the cluster
-    // TODO
-      cluster <- gdDAO.createCluster(googleProject, clusterName, clusterRequest.machineConfig, initBucketName, serviceAccountInfo).andThen { case Failure(_) =>
-        // If cluster creation fails, delete the init bucket asynchronously
+      machineConfig = MachineConfig(clusterRequest.machineConfig, defaultMachineConfig)
+      initScript = GcsPath(initBucketName, GcsObjectName(clusterResourcesConfig.initActionsScript.value))
+
+      cluster <- gdDAO.createCluster(googleProject, clusterName, machineConfig, initScript, serviceAccountInfo).map { operation =>
+        Cluster(
+          clusterName = clusterName,
+          googleId = operation.uuid,
+          googleProject = googleProject,
+          serviceAccountInfo = serviceAccountInfo,
+          machineConfig = machineConfig,
+          clusterUrl =
+
+        )
+      } andThen { case Failure(_) =>
+        // If cluster creation fails, delete the init bucket asynchronously and return the original error
         googleStorageDAO.deleteBucket(initBucketName, recurse = true)
       }
     } yield (cluster, initBucketPath, serviceAccountKeyOpt)
   }
 
+  private def buildCLuster
   private[service] def generateServiceAccountKey(googleProject: GoogleProject, serviceAccountOpt: Option[WorkbenchEmail]): Future[Option[ServiceAccountKey]] = {
     serviceAccountOpt.traverse { serviceAccountEmail =>
       googleIamDAO.createServiceAccountKey(dataprocConfig.leoGoogleProject, serviceAccountEmail)

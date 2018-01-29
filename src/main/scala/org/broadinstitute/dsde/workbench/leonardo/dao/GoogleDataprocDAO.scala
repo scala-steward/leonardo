@@ -16,7 +16,7 @@ trait GoogleDataprocDAO {
                     clusterName: ClusterName,
                     machineConfig: MachineConfig,
                     initScript: GcsPath,
-                    serviceAccountInfo: ServiceAccountInfo): Future[OperationName]
+                    serviceAccountInfo: ServiceAccountInfo): Future[Operation]
 
   def deleteCluster(googleProject: GoogleProject, clusterName: ClusterName): Future[Unit]
 

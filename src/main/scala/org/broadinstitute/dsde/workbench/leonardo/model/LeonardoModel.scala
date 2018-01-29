@@ -4,19 +4,17 @@ import java.net.URL
 import java.time.Instant
 import java.util.UUID
 
-import cats.Semigroup
-import cats.implicits._
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport
 import akka.http.scaladsl.model.StatusCodes
-import org.broadinstitute.dsde.workbench.model.google._
-import ClusterRequest.{LabelMap, _}
-import org.broadinstitute.dsde.workbench.model.google.GoogleModelJsonSupport.GoogleProjectFormat
-import org.broadinstitute.dsde.workbench.leonardo.config.{ClusterDefaultsConfig, ClusterFilesConfig, ClusterResourcesConfig, DataprocConfig, ProxyConfig, SwaggerConfig}
+import cats.Semigroup
+import cats.implicits._
+import org.broadinstitute.dsde.workbench.leonardo.config.{ClusterDefaultsConfig, ClusterFilesConfig, ClusterResourcesConfig, DataprocConfig, ProxyConfig}
 import org.broadinstitute.dsde.workbench.leonardo.model.ClusterStatus.ClusterStatus
-import org.broadinstitute.dsde.workbench.leonardo.service.IllegalLabelKeyException
+import org.broadinstitute.dsde.workbench.leonardo.model.StringValueClass._
 import org.broadinstitute.dsde.workbench.model.WorkbenchEmail
 import org.broadinstitute.dsde.workbench.model.WorkbenchIdentityJsonSupport._
-import org.broadinstitute.dsde.workbench.model.google.{GcsBucketName, GcsObjectName, GcsPath, GoogleProject, ServiceAccountKey}
+import org.broadinstitute.dsde.workbench.model.google.GoogleModelJsonSupport.GoogleProjectFormat
+import org.broadinstitute.dsde.workbench.model.google.{GcsBucketName, GcsObjectName, GcsPath, GoogleProject, ServiceAccountKey, _}
 import spray.json.{DefaultJsonProtocol, DeserializationException, JsString, JsValue, JsonFormat, SerializationException}
 
 import scala.language.implicitConversions
@@ -28,10 +26,14 @@ sealed trait StringValueClass extends Any with Product with Serializable {
   // productPrefix makes toString = e.g. "Cluster (clustername)"
   override def productPrefix: String = getClass.getSimpleName + " "
 }
+object StringValueClass {
+  type LabelMap = Map[String, String]
+}
 
-// Primitives
+// Google primitives
 case class ClusterName(value: String) extends AnyVal with StringValueClass
 case class OperationName(value: String) extends AnyVal with StringValueClass
+case class Operation(name: OperationName, uuid: UUID)
 case class InstanceName(value: String) extends AnyVal with StringValueClass
 case class ClusterResource(value: String) extends AnyVal with StringValueClass
 case class IP(value: String) extends AnyVal with StringValueClass
@@ -44,6 +46,7 @@ case class FirewallRulePort(value: String) extends AnyVal with StringValueClass
 case class FirewallRuleNetwork(value: String) extends AnyVal with StringValueClass
 case class FirewallRule(name: FirewallRuleName, protocol: String = "tcp", ports: List[FirewallRulePort], network: FirewallRuleNetwork, targetTags: List[NetworkTag])
 
+// Cluster default labels
 case class DefaultLabels(clusterName: ClusterName,
                          googleProject: GoogleProject,
                          creator: WorkbenchEmail,
@@ -51,13 +54,7 @@ case class DefaultLabels(clusterName: ClusterName,
                          notebookServiceAccount: Option[WorkbenchEmail],
                          notebookExtension: Option[GcsPath])
 
-// Create cluster request
-case class ClusterRequest(labels: LabelMap = Map.empty,
-                          jupyterExtensionUri: Option[GcsPath] = None,
-                          machineConfig: Option[MachineConfig] = None)
-object ClusterRequest {
-  type LabelMap = Map[String, String]
-}
+
 
 // Service accounts
 case class ServiceAccountInfo(clusterServiceAccount: Option[WorkbenchEmail],
@@ -90,6 +87,11 @@ object ClusterStatus extends Enumeration {
   }
 }
 
+// Create cluster request
+case class ClusterRequest(labels: LabelMap = Map.empty,
+                          jupyterExtensionUri: Option[GcsPath] = None,
+                          machineConfig: Option[MachineConfig] = None)
+
 // Cluster
 case class Cluster(clusterName: ClusterName,
                    googleId: UUID,
@@ -109,32 +111,31 @@ case class Cluster(clusterName: ClusterName,
 }
 
 object Cluster {
-  def create(clusterRequest: ClusterRequest,
-             userEmail: WorkbenchEmail,
-             clusterName: ClusterName,
-             googleProject: GoogleProject,
-             googleId: UUID,
-             operationName: OperationName,
-             serviceAccountInfo: ServiceAccountInfo,
-             clusterDefaultsConfig: ClusterDefaultsConfig,
-             clusterUrlBase: String): Cluster = {
-    Cluster(
-        clusterName = clusterName,
-        googleId = googleId,
-        googleProject = googleProject,
-        serviceAccountInfo = serviceAccountInfo,
-        machineConfig = MachineConfig(clusterRequest.machineConfig, clusterDefaultsConfig),
-        clusterUrl = getClusterUrl(clusterUrlBase, googleProject, clusterName),
-        operationName = operationName,
-        status = ClusterStatus.Creating,
-        hostIp = None,
-        userEmail,
-        createdDate = Instant.now(),
-        destroyedDate = None,
-        labels = clusterRequest.labels,
-        jupyterExtensionUri = clusterRequest.jupyterExtensionUri
-      )
-  }
+//  def create(clusterRequest: ClusterRequest,
+//             userEmail: WorkbenchEmail,
+//             clusterName: ClusterName,
+//             googleProject: GoogleProject,
+//             operation: Operation,
+//             serviceAccountInfo: ServiceAccountInfo,
+//             clusterDefaultsConfig: ClusterDefaultsConfig,
+//             clusterUrlBase: String): Cluster = {
+//    Cluster(
+//        clusterName = clusterName,
+//        googleId = operation.uuid,
+//        googleProject = googleProject,
+//        serviceAccountInfo = serviceAccountInfo,
+//        machineConfig = MachineConfig(clusterRequest.machineConfig, clusterDefaultsConfig),
+//        clusterUrl = getClusterUrl(clusterUrlBase, googleProject, clusterName),
+//        operationName = operation.name,
+//        status = ClusterStatus.Creating,
+//        hostIp = None,
+//        userEmail,
+//        createdDate = Instant.now(),
+//        destroyedDate = None,
+//        labels = clusterRequest.labels,
+//        jupyterExtensionUri = clusterRequest.jupyterExtensionUri
+//      )
+//  }
 
   def createDummyForDeletion(clusterRequest: ClusterRequest,
                              userEmail: WorkbenchEmail,

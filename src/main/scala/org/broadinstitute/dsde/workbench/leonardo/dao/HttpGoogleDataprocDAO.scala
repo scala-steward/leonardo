@@ -26,9 +26,8 @@ import com.google.api.services.dataproc.model.{NodeInitializationAction, Cluster
 import com.google.api.services.oauth2.Oauth2.Builder
 import com.google.api.services.oauth2.Oauth2Scopes
 import org.broadinstitute.dsde.workbench.google.GoogleUtilities
-import org.broadinstitute.dsde.workbench.leonardo.config.ClusterDefaultsConfig
 import org.broadinstitute.dsde.workbench.leonardo.model.ClusterStatus.{ClusterStatus => LeoClusterStatus}
-import org.broadinstitute.dsde.workbench.leonardo.model.{ClusterErrorDetails, ClusterInitValues, ClusterName, FirewallRule, IP, InstanceName, LeoException, MachineConfig, OperationName, ServiceAccountInfo, ZoneUri, Cluster => LeoCluster, ClusterStatus => LeoClusterStatus}
+import org.broadinstitute.dsde.workbench.leonardo.model.{ClusterErrorDetails, ClusterInitValues, ClusterName, FirewallRule, IP, InstanceName, LeoException, MachineConfig, Operation, OperationName, ServiceAccountInfo, ZoneUri, Cluster => LeoCluster, ClusterStatus => LeoClusterStatus}
 import org.broadinstitute.dsde.workbench.leonardo.service.AuthorizationError
 import org.broadinstitute.dsde.workbench.metrics.GoogleInstrumentedService
 import org.broadinstitute.dsde.workbench.model.google._
@@ -45,7 +44,6 @@ class HttpGoogleDataprocDAO(leoServiceAccountEmail: WorkbenchEmail,
                             appName: String,
                             defaultRegion: String,
                             defaultNetworkTag: String,
-                            defaultMachineConfig: ClusterDefaultsConfig,
                             override val workbenchMetricBaseName: String)
                            (implicit val system: ActorSystem, val executionContext: ExecutionContext)
   extends GoogleDataprocDAO with GoogleUtilities {
@@ -91,14 +89,16 @@ class HttpGoogleDataprocDAO(leoServiceAccountEmail: WorkbenchEmail,
   }
 
   /* Kicks off building the cluster. This will return before the cluster finishes creating. */
-  override def createCluster(googleProject: GoogleProject, clusterName: ClusterName, machineConfig: MachineConfig, initScript: GcsPath, serviceAccountInfo: ServiceAccountInfo): Future[OperationName] = {
+  override def createCluster(googleProject: GoogleProject, clusterName: ClusterName, machineConfig: MachineConfig, initScript: GcsPath, serviceAccountInfo: ServiceAccountInfo): Future[Operation] = {
     val cluster = new DataprocCluster()
       .setClusterName(clusterName.value)
       .setConfig(getClusterConfig(machineConfig, initScript, serviceAccountInfo))
 
     val request = dataproc.projects().regions().clusters().create(googleProject.value, defaultRegion, cluster)
 
-    executeGoogleRequestAsync(googleProject, clusterName.toString, request).map(op => OperationName(op.getName))
+    executeGoogleRequestAsync(googleProject, clusterName.toString, request).map { op =>
+      Operation(OperationName(op.getName), getOperationUUID(op))
+    }
   }
 
   /* Delete a cluster within the google project */
@@ -210,8 +210,6 @@ class HttpGoogleDataprocDAO(leoServiceAccountEmail: WorkbenchEmail,
     // Create a NodeInitializationAction, which specifies the executable to run on a node.
     // This executable is our init-actions.sh, which will stand up our jupyter server and proxy.
     val initActions = Seq(new NodeInitializationAction().setExecutableFile(initScript.toUri))
-
-    val machineConfig = MachineConfig(machineConfig, defaultMachineConfig)
 
     // Create a config for the master node, if properties are not specified in request, use defaults
     val masterConfig = new InstanceGroupConfig()
