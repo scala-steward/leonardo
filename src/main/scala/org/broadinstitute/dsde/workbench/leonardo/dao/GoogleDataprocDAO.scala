@@ -39,13 +39,13 @@ import scala.concurrent.{ExecutionContext, Future, blocking}
 case class CallToGoogleApiFailedException(googleProject: GoogleProject, context: String, exceptionStatusCode: Int, errorMessage: String)
   extends LeoException(s"Call to Google API failed for ${googleProject.value} / $context. Message: $errorMessage", exceptionStatusCode)
 
-class HttpGoogleDataprocDAO(leoServiceAccountEmail: WorkbenchEmail,
-                            leoServiceAccountPemFile: File,
-                            appName: String,
-                            defaultRegion: String,
-                            defaultNetworkTag: String,
-                            override val workbenchMetricBaseName: String)
-                           (implicit val system: ActorSystem, val executionContext: ExecutionContext)
+class GoogleDataprocDAO(leoServiceAccountEmail: WorkbenchEmail,
+                        leoServiceAccountPemFile: File,
+                        appName: String,
+                        defaultRegion: String,
+                        defaultNetworkTag: String,
+                        override val workbenchMetricBaseName: String)
+                       (implicit val system: ActorSystem, val executionContext: ExecutionContext)
   extends DataprocDAO with GoogleUtilities {
 
   implicit val service = GoogleInstrumentedService.Dataproc
