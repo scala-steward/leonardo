@@ -16,7 +16,7 @@ import com.typesafe.scalalogging.LazyLogging
 import java.util.concurrent.TimeUnit
 
 import org.broadinstitute.dsde.workbench.leonardo.config.ProxyConfig
-import org.broadinstitute.dsde.workbench.leonardo.dao.GoogleDataprocDAO
+import org.broadinstitute.dsde.workbench.leonardo.dao.DataprocDAO
 import org.broadinstitute.dsde.workbench.leonardo.db.DbReference
 import org.broadinstitute.dsde.workbench.leonardo.dns.ClusterDnsCache._
 import org.broadinstitute.dsde.workbench.leonardo.model._
@@ -41,7 +41,7 @@ case class AccessTokenExpiredException()
   * Created by rtitle on 8/15/17.
   */
 class ProxyService(proxyConfig: ProxyConfig,
-                   gdDAO: GoogleDataprocDAO,
+                   gdDAO: DataprocDAO,
                    dbRef: DbReference,
                    clusterDnsCache: ActorRef,
                    authProvider: LeoAuthProvider)(implicit val system: ActorSystem, materializer: ActorMaterializer, executionContext: ExecutionContext) extends LazyLogging {

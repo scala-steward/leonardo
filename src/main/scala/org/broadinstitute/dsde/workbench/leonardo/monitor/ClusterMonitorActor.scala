@@ -8,7 +8,7 @@ import com.typesafe.scalalogging.LazyLogging
 import io.grpc.Status.Code
 import org.broadinstitute.dsde.workbench.google.GoogleIamDAO
 import org.broadinstitute.dsde.workbench.leonardo.config.{DataprocConfig, MonitorConfig}
-import org.broadinstitute.dsde.workbench.leonardo.dao.{CallToGoogleApiFailedException, GoogleDataprocDAO}
+import org.broadinstitute.dsde.workbench.leonardo.dao.{CallToGoogleApiFailedException, DataprocDAO}
 import org.broadinstitute.dsde.workbench.leonardo.db.DbReference
 import org.broadinstitute.dsde.workbench.leonardo.dns.ClusterDnsCache.{ClusterReady, GetClusterResponse, ProcessReadyCluster}
 import org.broadinstitute.dsde.workbench.leonardo.model.ClusterStatus._
@@ -28,7 +28,7 @@ object ClusterMonitorActor {
   /**
     * Creates a Props object used for creating a {{{ClusterMonitorActor}}}.
     */
-  def props(cluster: Cluster, monitorConfig: MonitorConfig, dataprocConfig: DataprocConfig, gdDAO: GoogleDataprocDAO, googleIamDAO: GoogleIamDAO, dbRef: DbReference, clusterDnsCache: ActorRef): Props =
+  def props(cluster: Cluster, monitorConfig: MonitorConfig, dataprocConfig: DataprocConfig, gdDAO: DataprocDAO, googleIamDAO: GoogleIamDAO, dbRef: DbReference, clusterDnsCache: ActorRef): Props =
     Props(new ClusterMonitorActor(cluster, monitorConfig, dataprocConfig, gdDAO, googleIamDAO, dbRef, clusterDnsCache))
 
   // ClusterMonitorActor messages:
@@ -54,7 +54,7 @@ object ClusterMonitorActor {
 class ClusterMonitorActor(val cluster: Cluster,
                           val monitorConfig: MonitorConfig,
                           val dataprocConfig: DataprocConfig,
-                          val gdDAO: GoogleDataprocDAO,
+                          val gdDAO: DataprocDAO,
                           val googleIamDAO: GoogleIamDAO,
                           val dbRef: DbReference,
                           val clusterDnsCache: ActorRef) extends Actor with LazyLogging {

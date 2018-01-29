@@ -9,7 +9,7 @@ import cats.implicits._
 import com.typesafe.scalalogging.LazyLogging
 import org.broadinstitute.dsde.workbench.google.{GoogleIamDAO, GoogleStorageDAO}
 import org.broadinstitute.dsde.workbench.leonardo.config.{ClusterDefaultsConfig, ClusterFilesConfig, ClusterResourcesConfig, DataprocConfig, ProxyConfig, SwaggerConfig}
-import org.broadinstitute.dsde.workbench.leonardo.dao.GoogleDataprocDAO
+import org.broadinstitute.dsde.workbench.leonardo.dao.DataprocDAO
 import org.broadinstitute.dsde.workbench.leonardo.db.DbReference
 import org.broadinstitute.dsde.workbench.leonardo.model.LeonardoJsonSupport._
 import org.broadinstitute.dsde.workbench.leonardo.model.NotebookClusterActions._
@@ -50,20 +50,20 @@ case class IllegalLabelKeyException(labelKey: String)
 
 
 class LeonardoService private[leonardo] (dataprocConfig: DataprocConfig,
-                               clusterFilesConfig: ClusterFilesConfig,
-                               clusterResourcesConfig: ClusterResourcesConfig,
-                               defaultMachineConfig: ClusterDefaultsConfig,
-                               proxyConfig: ProxyConfig,
-                               swaggerConfig: SwaggerConfig,
-                               gdDAO: GoogleDataprocDAO,
-                               googleIamDAO: GoogleIamDAO,
-                               googleStorageDAO: GoogleStorageDAO,
-                               dbRef: DbReference,
-                               clusterMonitorSupervisor: ActorRef,
-                               authProvider: LeoAuthProvider,
-                               serviceAccountProvider: ServiceAccountProvider,
-                               leoServiceAccountEmail: WorkbenchEmail,
-                               whitelist: Set[String])
+                                         clusterFilesConfig: ClusterFilesConfig,
+                                         clusterResourcesConfig: ClusterResourcesConfig,
+                                         defaultMachineConfig: ClusterDefaultsConfig,
+                                         proxyConfig: ProxyConfig,
+                                         swaggerConfig: SwaggerConfig,
+                                         gdDAO: DataprocDAO,
+                                         googleIamDAO: GoogleIamDAO,
+                                         googleStorageDAO: GoogleStorageDAO,
+                                         dbRef: DbReference,
+                                         clusterMonitorSupervisor: ActorRef,
+                                         authProvider: LeoAuthProvider,
+                                         serviceAccountProvider: ServiceAccountProvider,
+                                         leoServiceAccountEmail: WorkbenchEmail,
+                                         whitelist: Set[String])
                               (implicit executionContext: ExecutionContext) extends LazyLogging {
 
   private val bucketPathMaxLength = 1024
