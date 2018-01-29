@@ -114,7 +114,7 @@ class ClusterDnsCache(proxyConfig: ProxyConfig, dbRef: DbReference) extends Acto
       ClusterDnsCache.HostToIp += hostToIpEntry(cluster)
       ProjectNameToHost += projectNameToHostEntry(cluster)
 
-      logger.debug(s"Saved new cluster ${cluster.googleProject.value}/${cluster.clusterName.string} to DNS cache with IP ${cluster.hostIp.get.string}")
+      logger.debug(s"Saved new cluster ${cluster.projectNameString} to DNS cache with IP ${cluster.hostIp.get.value}")
       Right(ProjectNameToHost(cluster.googleProject, cluster.clusterName))
     }
   }

@@ -54,13 +54,11 @@ case class DefaultLabels(clusterName: ClusterName,
                          notebookServiceAccount: Option[WorkbenchEmail],
                          notebookExtension: Option[GcsPath])
 
-
-
-// Service accounts
+// Service account information
 case class ServiceAccountInfo(clusterServiceAccount: Option[WorkbenchEmail],
                               notebookServiceAccount: Option[WorkbenchEmail])
 
-// Contains information about cluster creation errors
+// Information about cluster creation errors
 case class ClusterErrorDetails(code: Int, message: Option[String])
 
 // ClusterStatus enum
@@ -111,31 +109,31 @@ case class Cluster(clusterName: ClusterName,
 }
 
 object Cluster {
-//  def create(clusterRequest: ClusterRequest,
-//             userEmail: WorkbenchEmail,
-//             clusterName: ClusterName,
-//             googleProject: GoogleProject,
-//             operation: Operation,
-//             serviceAccountInfo: ServiceAccountInfo,
-//             clusterDefaultsConfig: ClusterDefaultsConfig,
-//             clusterUrlBase: String): Cluster = {
-//    Cluster(
-//        clusterName = clusterName,
-//        googleId = operation.uuid,
-//        googleProject = googleProject,
-//        serviceAccountInfo = serviceAccountInfo,
-//        machineConfig = MachineConfig(clusterRequest.machineConfig, clusterDefaultsConfig),
-//        clusterUrl = getClusterUrl(clusterUrlBase, googleProject, clusterName),
-//        operationName = operation.name,
-//        status = ClusterStatus.Creating,
-//        hostIp = None,
-//        userEmail,
-//        createdDate = Instant.now(),
-//        destroyedDate = None,
-//        labels = clusterRequest.labels,
-//        jupyterExtensionUri = clusterRequest.jupyterExtensionUri
-//      )
-//  }
+  def create(clusterRequest: ClusterRequest,
+             userEmail: WorkbenchEmail,
+             clusterName: ClusterName,
+             googleProject: GoogleProject,
+             operation: Operation,
+             serviceAccountInfo: ServiceAccountInfo,
+             machineConfig: MachineConfig,
+             clusterUrlBase: String): Cluster = {
+    Cluster(
+        clusterName = clusterName,
+        googleId = operation.uuid,
+        googleProject = googleProject,
+        serviceAccountInfo = serviceAccountInfo,
+        machineConfig = machineConfig,
+        clusterUrl = getClusterUrl(clusterUrlBase, googleProject, clusterName),
+        operationName = operation.name,
+        status = ClusterStatus.Creating,
+        hostIp = None,
+        userEmail,
+        createdDate = Instant.now(),
+        destroyedDate = None,
+        labels = clusterRequest.labels,
+        jupyterExtensionUri = clusterRequest.jupyterExtensionUri
+      )
+  }
 
   def createDummyForDeletion(clusterRequest: ClusterRequest,
                              userEmail: WorkbenchEmail,

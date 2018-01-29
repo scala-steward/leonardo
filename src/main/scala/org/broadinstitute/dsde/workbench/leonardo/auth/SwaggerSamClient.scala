@@ -99,7 +99,7 @@ class SwaggerSamClient(samBasePath: String, cacheExpiryTime: FiniteDuration, cac
 
 
   private def getClusterResourceId(googleProject: GoogleProject, clusterName: ClusterName): String = {
-    googleProject.value + "_" + clusterName.string
+    googleProject.value + "_" + clusterName.value
   }
 
 

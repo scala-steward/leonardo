@@ -7,7 +7,7 @@ import java.util.UUID
 import cats.implicits._
 import org.broadinstitute.dsde.workbench.leonardo.model.ClusterStatus.ClusterStatus
 import org.broadinstitute.dsde.workbench.leonardo.model._
-import org.broadinstitute.dsde.workbench.leonardo.model.ClusterLabels._
+import org.broadinstitute.dsde.workbench.leonardo.model.StringValueClass._
 import org.broadinstitute.dsde.workbench.model.WorkbenchEmail
 import org.broadinstitute.dsde.workbench.model.google._
 

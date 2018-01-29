@@ -1,30 +1,27 @@
 package org.broadinstitute.dsde.workbench.leonardo.service
 
+import java.io.File
+
 import akka.actor.ActorRef
 import akka.http.scaladsl.model.StatusCodes
-import com.typesafe.scalalogging.LazyLogging
-import java.io.File
-import java.util.UUID
-
-import scala.collection.Map
 import cats.data.OptionT
 import cats.implicits._
-import com.google.api.services.dataproc.model.Operation
+import com.typesafe.scalalogging.LazyLogging
 import org.broadinstitute.dsde.workbench.google.{GoogleIamDAO, GoogleStorageDAO}
-import org.broadinstitute.dsde.workbench.model.google.{GcsPath, GoogleProject, ServiceAccountKey}
 import org.broadinstitute.dsde.workbench.leonardo.config.{ClusterDefaultsConfig, ClusterFilesConfig, ClusterResourcesConfig, DataprocConfig, ProxyConfig, SwaggerConfig}
 import org.broadinstitute.dsde.workbench.leonardo.dao.GoogleDataprocDAO
 import org.broadinstitute.dsde.workbench.leonardo.db.DbReference
 import org.broadinstitute.dsde.workbench.leonardo.model.LeonardoJsonSupport._
-import org.broadinstitute.dsde.workbench.leonardo.model._
-import org.broadinstitute.dsde.workbench.leonardo.model.StringValueClass._
-import org.broadinstitute.dsde.workbench.leonardo.monitor.ClusterMonitorSupervisor.{ClusterCreated, ClusterDeleted, RegisterLeoService}
-import org.broadinstitute.dsde.workbench.model.google._
-import org.broadinstitute.dsde.workbench.leonardo.model.ProjectActions._
 import org.broadinstitute.dsde.workbench.leonardo.model.NotebookClusterActions._
+import org.broadinstitute.dsde.workbench.leonardo.model.ProjectActions._
+import org.broadinstitute.dsde.workbench.leonardo.model.StringValueClass._
+import org.broadinstitute.dsde.workbench.leonardo.model._
+import org.broadinstitute.dsde.workbench.leonardo.monitor.ClusterMonitorSupervisor.{ClusterCreated, ClusterDeleted, RegisterLeoService}
+import org.broadinstitute.dsde.workbench.model.google.{GcsPath, GoogleProject, ServiceAccountKey, _}
 import org.broadinstitute.dsde.workbench.model.{UserInfo, WorkbenchEmail}
 import spray.json._
 
+import scala.collection.Map
 import scala.concurrent.{ExecutionContext, Future}
 import scala.io.Source
 import scala.util.control.NonFatal
@@ -52,7 +49,7 @@ case class IllegalLabelKeyException(labelKey: String)
   extends LeoException(s"Labels cannot have a key of '$labelKey'", StatusCodes.NotAcceptable)
 
 
-class LeonardoService private (dataprocConfig: DataprocConfig,
+class LeonardoService private[leonardo] (dataprocConfig: DataprocConfig,
                                clusterFilesConfig: ClusterFilesConfig,
                                clusterResourcesConfig: ClusterResourcesConfig,
                                defaultMachineConfig: ClusterDefaultsConfig,
@@ -265,17 +262,8 @@ class LeonardoService private (dataprocConfig: DataprocConfig,
       // Once the bucket is ready, build the cluster
       machineConfig = MachineConfig(clusterRequest.machineConfig, defaultMachineConfig)
       initScript = GcsPath(initBucketName, GcsObjectName(clusterResourcesConfig.initActionsScript.value))
-
       cluster <- gdDAO.createCluster(googleProject, clusterName, machineConfig, initScript, serviceAccountInfo).map { operation =>
-        Cluster(
-          clusterName = clusterName,
-          googleId = operation.uuid,
-          googleProject = googleProject,
-          serviceAccountInfo = serviceAccountInfo,
-          machineConfig = machineConfig,
-          clusterUrl =
-
-        )
+        Cluster.create(clusterRequest, userEmail, clusterName, googleProject, operation, serviceAccountInfo, machineConfig, dataprocConfig.clusterUrlBase)
       } andThen { case Failure(_) =>
         // If cluster creation fails, delete the init bucket asynchronously and return the original error
         googleStorageDAO.deleteBucket(initBucketName, recurse = true)
@@ -283,7 +271,6 @@ class LeonardoService private (dataprocConfig: DataprocConfig,
     } yield (cluster, initBucketPath, serviceAccountKeyOpt)
   }
 
-  private def buildCLuster
   private[service] def generateServiceAccountKey(googleProject: GoogleProject, serviceAccountOpt: Option[WorkbenchEmail]): Future[Option[ServiceAccountKey]] = {
     serviceAccountOpt.traverse { serviceAccountEmail =>
       googleIamDAO.createServiceAccountKey(dataprocConfig.leoGoogleProject, serviceAccountEmail)
@@ -336,13 +323,13 @@ class LeonardoService private (dataprocConfig: DataprocConfig,
     //Add the Leo SA and the cluster's SA to the ACL list for the bucket
 
     val transformed = for {
-      leoSa <- OptionT.pure(leoServiceAccountEmail)
-      clusterSa <- OptionT.fromOption(serviceAccountInfo.clusterServiceAccount).orElse(OptionT(gdDAO.getComputeEngineDefaultServiceAccount(googleProject)))
+      leoSa <- OptionT.pure[Future, WorkbenchEmail](leoServiceAccountEmail)
+      clusterSa <- OptionT.fromOption[Future](serviceAccountInfo.clusterServiceAccount).orElse(OptionT(gdDAO.getComputeEngineDefaultServiceAccount(googleProject)))
 
       acls = List(GcsAccessControl(leoSa, Owner), GcsAccessControl(clusterSa, Reader))
 
-      _ <- Future.traverse(acls)(acl => googleStorageDAO.setBucketAccessControl(initBucketName, acl))
-      _ <- Future.traverse(acls)(acl => googleStorageDAO.setDefaultObjectAccessControl(initBucketName, acl))
+      _ <- OptionT.liftF(Future.traverse(acls)(acl => googleStorageDAO.setBucketAccessControl(initBucketName, acl)))
+      _ <- OptionT.liftF(Future.traverse(acls)(acl => googleStorageDAO.setDefaultObjectAccessControl(initBucketName, acl)))
     } yield ()
 
     transformed.value.void
