@@ -37,6 +37,9 @@ set -e
 TARGET="${TARGET:-leonardo}"
 GIT_BRANCH="${GIT_BRANCH:-$BRANCH}"
 GIT_BRANCH="${GIT_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
+echo "aaa GIT_BRANCH is $GIT_BRANCH"
+echo "bbb BRANCH is $BRANCH"
+
 DOCKER_REGISTRY="dockerhub"  # Must be either "dockerhub" or "gcr"
 DOCKER_CMD=""
 ENV=${ENV:-""}  # if env is not set, push an image with branch name
