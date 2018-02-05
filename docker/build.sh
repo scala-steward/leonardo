@@ -35,7 +35,7 @@ set -e
 
 # Set default variables used while parsing command line options.
 TARGET="${TARGET:-leonardo}"
-GIT_BRANCH="${GIT_BRANCH:-${BRANCH:-$(git rev-parse --abbrev-ref HEAD)}}"
+GIT_BRANCH="${BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
 echo "aaa GIT_BRANCH is $GIT_BRANCH"
 echo "bbb BRANCH is $BRANCH"
 
