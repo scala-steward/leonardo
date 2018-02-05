@@ -102,6 +102,9 @@ if [[ $DOCKER_REGISTRY == "dockerhub" ]]; then
   REPO="${PROJECT}"
   IMAGE="${REPO}/${TARGET}"
   DOCKER_REMOTES_BINARY="docker"
+  echo "PROJECT = $PROJECT"
+  echo "REPO = $REPO"
+  echo "IMAGE = $IMAGE"
 elif [[ $DOCKER_REGISTRY == "gcr" ]]; then
   PROJECT="${PROJECT:-$(gcloud config get-value project)}"
   # Domain scoped project IDs need to be modified to work with GCR.
