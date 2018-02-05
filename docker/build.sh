@@ -156,6 +156,7 @@ function docker_cmd()
             DOCKER_TAG=${GIT_SHA:0:12}
             DOCKER_TAG_TESTS=latest
         fi
+        echo "XXX docker tag is $DOCKER_TAG"
 
         # builds the juptyer notebooks docker image that goes on dataproc clusters
         bash ./jupyter-docker/build.sh build "${REPO}" "${DOCKER_TAG}"
