@@ -157,6 +157,7 @@ function docker_cmd()
             DOCKER_TAG_TESTS=latest
         fi
         echo "XXX docker tag is $DOCKER_TAG"
+        echo "YYY git branch is $GIT_BRANCH"
 
         # builds the juptyer notebooks docker image that goes on dataproc clusters
         bash ./jupyter-docker/build.sh build "${REPO}" "${DOCKER_TAG}"
