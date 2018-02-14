@@ -42,7 +42,7 @@ case class ServiceAccountInfoRecord(clusterServiceAccount: Option[String],
                                     serviceAccountKeyId: Option[String])
 
 trait ClusterComponent extends LeoComponent {
-  this: LabelComponent with ClusterErrorComponent with InstanceComponent =>
+  this: LabelComponent with InstanceComponent =>
 
   import profile.api._
 
