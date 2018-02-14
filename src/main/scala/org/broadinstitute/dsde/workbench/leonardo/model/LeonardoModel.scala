@@ -51,16 +51,10 @@ case class Cluster(clusterName: ClusterName,
                    jupyterExtensionUri: Option[GcsPath],
                    jupyterUserScriptUri: Option[GcsPath],
                    stagingBucket: Option[GcsBucketName],
-                   errors: List[ClusterError]) {
+                   errors: List[ClusterError],
+                   instances: Set[Instance]) {
   def projectNameString: String = s"${googleProject.value}/${clusterName.value}"
 }
-
-
-case class ClusterError(errorMessage: String,
-                        errorCode: Int,
-                        timestamp: Instant
-                       )
-
 object Cluster {
   type LabelMap = Map[String, String]
 
@@ -90,7 +84,8 @@ object Cluster {
         jupyterExtensionUri = clusterRequest.jupyterExtensionUri,
         jupyterUserScriptUri = clusterRequest.jupyterUserScriptUri,
         stagingBucket = Some(stagingBucket),
-        errors = List.empty
+        errors = List.empty,
+        instances = Set.empty
       )
   }
 
@@ -116,7 +111,8 @@ object Cluster {
       jupyterExtensionUri = clusterRequest.jupyterExtensionUri,
       jupyterUserScriptUri = clusterRequest.jupyterUserScriptUri,
       stagingBucket = None,
-      errors = List.empty
+      errors = List.empty,
+      instances = Set.empty
     )
   }
 
