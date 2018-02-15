@@ -113,19 +113,20 @@ RUN apt-get install -yq --no-install-recommends \
  && python get-pip.py \
 
  # Hail requires decorator
- && pip install -U decorator jupyter \
- && pip install google-cloud \
- && pip install firecloud==0.16.7 \
- && pip install -U scikit-learn \
- && pip install ggplot \
- && pip install bokeh \
- && pip install pyfasta \
- && pip install pdoc \
- && pip install biopython \
- && pip install bx-python \
- && pip install fastinterval \
- && pip install matplotlib-venn \
- && pip install "https://github.com/all-of-us/workbench/archive/pyclient-v0-1-rc3.zip#egg=aou_workbench_client&subdirectory=client/py"
+# && pip install -U decorator jupyter \
+# && pip install google-cloud \
+# && pip install firecloud==0.16.7 \
+# && pip install -U scikit-learn \
+# && pip install ggplot \
+# &&
+# && pip install bokeh \
+# && pip install pyfasta \
+# && pip install pdoc \
+# && pip install biopython \
+# && pip install bx-python \
+# && pip install fastinterval \
+# && pip install matplotlib-venn \
+# && pip install "https://github.com/all-of-us/workbench/archive/pyclient-v0-1-rc3.zip#egg=aou_workbench_client&subdirectory=client/py"
 
 #######################
 # Utilities
