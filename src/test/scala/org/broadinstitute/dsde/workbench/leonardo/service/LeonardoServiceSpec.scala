@@ -9,8 +9,8 @@ import akka.testkit.TestKit
 import org.broadinstitute.dsde.workbench.google.GoogleStorageDAO
 import org.broadinstitute.dsde.workbench.google.mock.{MockGoogleDataprocDAO, MockGoogleIamDAO, MockGoogleStorageDAO}
 import org.broadinstitute.dsde.workbench.leonardo.CommonTestData
-import org.broadinstitute.dsde.workbench.leonardo.auth.WhitelistAuthProvider
-import org.broadinstitute.dsde.workbench.leonardo.auth.sam.{MockPetClusterServiceAccountProvider, MockSwaggerSamClient}
+import org.broadinstitute.dsde.workbench.leonardo.auth.{MockPetClusterServiceAccountProvider, MockSwaggerSamClient, WhitelistAuthProvider}
+import org.broadinstitute.dsde.workbench.leonardo.dao.google.MockGoogleComputeDAO
 import org.broadinstitute.dsde.workbench.leonardo.db.{DbSingleton, TestComponent}
 import org.broadinstitute.dsde.workbench.leonardo.model.LeonardoJsonSupport._
 import org.broadinstitute.dsde.workbench.leonardo.model.MachineConfigOps.{NegativeIntegerArgumentInClusterRequestException, OneWorkerSpecifiedInClusterRequestException}
@@ -29,6 +29,7 @@ import scala.concurrent.{ExecutionContext, Future}
 
 class LeonardoServiceSpec extends TestKit(ActorSystem("leonardotest")) with FlatSpecLike with Matchers with BeforeAndAfter with BeforeAndAfterAll with TestComponent with ScalaFutures with OptionValues with CommonTestData {
   private var gdDAO: MockGoogleDataprocDAO = _
+  private var computeDAO: MockGoogleComputeDAO = _
   private var iamDAO: MockGoogleIamDAO = _
   private var storageDAO: MockGoogleStorageDAO = _
   private var samClient: MockSwaggerSamClient = _
@@ -38,6 +39,7 @@ class LeonardoServiceSpec extends TestKit(ActorSystem("leonardotest")) with Flat
 
   before {
     gdDAO = new MockGoogleDataprocDAO
+    computeDAO = new MockGoogleComputeDAO
     iamDAO = new MockGoogleIamDAO
     storageDAO = new MockGoogleStorageDAO
     // Pre-populate the juptyer extenion bucket in the mock storage DAO, as it is passed in some requests
@@ -46,11 +48,11 @@ class LeonardoServiceSpec extends TestKit(ActorSystem("leonardotest")) with Flat
     samClient = serviceAccountProvider.asInstanceOf[MockPetClusterServiceAccountProvider].mockSwaggerSamClient
     authProvider = new WhitelistAuthProvider(whitelistAuthConfig, serviceAccountProvider)
 
-    bucketHelper = new BucketHelper(dataprocConfig, gdDAO, storageDAO, serviceAccountProvider)
+    bucketHelper = new BucketHelper(dataprocConfig, gdDAO, computeDAO, storageDAO, serviceAccountProvider)
     val mockPetGoogleDAO: String => GoogleStorageDAO = _ => {
       new MockGoogleStorageDAO
     }
-    leo = new LeonardoService(dataprocConfig, clusterFilesConfig, clusterResourcesConfig, clusterDefaultsConfig, proxyConfig, swaggerConfig, gdDAO, iamDAO, storageDAO, mockPetGoogleDAO, DbSingleton.ref, system.actorOf(NoopActor.props), authProvider, serviceAccountProvider, whitelist, bucketHelper)
+    leo = new LeonardoService(dataprocConfig, clusterFilesConfig, clusterResourcesConfig, clusterDefaultsConfig, proxyConfig, swaggerConfig, gdDAO, computeDAO, iamDAO, storageDAO, mockPetGoogleDAO, DbSingleton.ref, system.actorOf(NoopActor.props), authProvider, serviceAccountProvider, whitelist, bucketHelper)
   }
 
   override def afterAll(): Unit = {
