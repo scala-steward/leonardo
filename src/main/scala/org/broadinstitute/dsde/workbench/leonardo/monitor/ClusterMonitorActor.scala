@@ -170,16 +170,6 @@ class ClusterMonitorActor(val cluster: Cluster,
       // Remove the service account key in Google, if present.
       // Only happens if the cluster was NOT created with the pet service account.
       removeServiceAccountKey,
-      dbRef.inTransaction { dataAccess =>
-        val clusterId = dataAccess.clusterQuery.getIdByGoogleId(cluster.googleId)
-        clusterId flatMap {
-          case Some(a) => dataAccess.clusterErrorQuery.save(a, ClusterError(errorDetails.message.getOrElse("Error not available"), errorDetails.code, Instant.now))
-          case None => {
-            logger.warn(s"Could not find Id for Cluster ${cluster.projectNameString}  with google cluster ID ${cluster.googleId}.")
-            DBIOAction.successful(0)
-          }
-        }
-      },
       // create or update instances in the DB
       persistInstances(instances)
     ))
