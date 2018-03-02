@@ -12,10 +12,12 @@ import com.typesafe.scalalogging.LazyLogging
 import org.broadinstitute.dsde.workbench.dao.Google.{googleIamDAO, googleStorageDAO}
 import org.broadinstitute.dsde.workbench.auth.{AuthToken, UserAuthToken}
 import org.broadinstitute.dsde.workbench.config.{Config, Credentials}
+import org.broadinstitute.dsde.workbench.service.Sam
+import org.broadinstitute.dsde.workbench.leonardo.model.Cluster.LabelMap
+import org.broadinstitute.dsde.workbench.service.{Orchestration, Rawls, Sam}
+import org.broadinstitute.dsde.workbench.service.APIException
 import org.broadinstitute.dsde.workbench.service.{RestException, Sam}
 import org.broadinstitute.dsde.workbench.service.test.WebBrowserSpec
-import org.broadinstitute.dsde.workbench.leonardo.ClusterStatus.ClusterStatus
-import org.broadinstitute.dsde.workbench.leonardo.StringValueClass.LabelMap
 import org.broadinstitute.dsde.workbench.model.WorkbenchEmail
 import org.broadinstitute.dsde.workbench.model.google._
 import org.broadinstitute.dsde.workbench.util.LocalFileUtil
@@ -24,6 +26,9 @@ import org.scalactic.source.Position
 import org.scalatest.{Matchers, Suite}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Minutes, Seconds, Span}
+import org.broadinstitute.dsde.workbench.leonardo.model.{Cluster, ClusterRequest, DefaultLabels}
+import org.broadinstitute.dsde.workbench.leonardo.model.google.{ClusterName, ClusterStatus}
+import org.broadinstitute.dsde.workbench.leonardo.model.google.ClusterStatus.ClusterStatus
 
 import scala.concurrent._
 import scala.concurrent.duration._
@@ -37,8 +42,8 @@ trait LeonardoTestUtils extends WebBrowserSpec with Matchers with Eventually wit
   this: Suite =>
 
   val swatTestBucket = "gs://leonardo-swat-test-bucket-do-not-delete"
-  val incorrectJupyterExtensionUri = swatTestBucket + "/"
-  val testJupyterExtensionUri = swatTestBucket + "/my_ext.tar.gz"
+  val incorrectJupyterExtensionUri = GcsPath(GcsBucketName(swatTestBucket), GcsObjectName(""))
+  val testJupyterExtensionUri = GcsPath(GcsBucketName(swatTestBucket), GcsObjectName("/my_ext.tar.gz"))
 
   // must align with run-tests.sh and hub-compose-fiab.yml
   val downloadDir = "chrome/downloads"
@@ -78,14 +83,18 @@ trait LeonardoTestUtils extends WebBrowserSpec with Matchers with Eventually wit
                  creator: WorkbenchEmail,
                  clusterRequest: ClusterRequest): Unit = {
 
+    import spray.json._
+    import DefaultJsonProtocol._
+    import org.broadinstitute.dsde.workbench.leonardo.model.LeonardoJsonSupport.DefaultLabelsFormat
+
     // the SAs can vary here depending on which ServiceAccountProvider is used
     // set dummy values here and then remove them from the comparison
     // TODO: check for these values after tests are agnostic to ServiceAccountProvider ?
 
     val dummyClusterSa = WorkbenchEmail("dummy-cluster")
     val dummyNotebookSa = WorkbenchEmail("dummy-notebook")
-    val expected = clusterRequest.labels ++ DefaultLabels(clusterName, googleProject, creator, Some(dummyClusterSa), Some(dummyNotebookSa), clusterRequest.jupyterExtensionUri, clusterRequest.jupyterUserScriptUri).toMap
-
+    val defaultLabels = DefaultLabels(clusterName, googleProject, creator, Some(dummyClusterSa), Some(dummyNotebookSa), clusterRequest.jupyterExtensionUri, clusterRequest.jupyterUserScriptUri)
+    val expected = clusterRequest.labels ++ defaultLabels.toJson.asJsObject.fields.mapValues(labelValue => labelValue.convertTo[String])
     (seen - "clusterServiceAccount" - "notebookServiceAccount") shouldBe (expected - "clusterServiceAccount" - "notebookServiceAccount")
   }
 
@@ -290,7 +299,7 @@ trait LeonardoTestUtils extends WebBrowserSpec with Matchers with Eventually wit
 
   def withNewErroredCluster[T](googleProject: GoogleProject)(testCode: Cluster => T)(implicit token: AuthToken): T = {
     val name = ClusterName(s"automation-test-a${makeRandomId()}z")
-    val request = ClusterRequest(Map("foo" -> makeRandomId()), Some(incorrectJupyterExtensionUri))
+    val request = ClusterRequest(Map("foo" -> makeRandomId()), Some(incorrectJupyterExtensionUri), None, None)
     val testResult: Try[T] = Try {
       val cluster = createAndMonitor(googleProject, name, request)
       cluster.status shouldBe ClusterStatus.Error
@@ -495,7 +504,7 @@ trait LeonardoTestUtils extends WebBrowserSpec with Matchers with Eventually wit
 
     // show that the Hail log contains jobs that were run on preemptible nodes
 
-    val preemptibleNodePrefix = clusterName.string + "-sw"
+    val preemptibleNodePrefix = clusterName.value + "-sw"
     notebookPage.executeCell(s"! grep Finished ~/hail.log | grep $preemptibleNodePrefix").get should include(preemptibleNodePrefix)
   }
 

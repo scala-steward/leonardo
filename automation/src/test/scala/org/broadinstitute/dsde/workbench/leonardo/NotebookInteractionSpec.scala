@@ -8,6 +8,10 @@ import org.broadinstitute.dsde.workbench.ResourceFile
 import org.broadinstitute.dsde.workbench.auth.AuthToken
 import org.broadinstitute.dsde.workbench.dao.Google.googleStorageDAO
 import org.broadinstitute.dsde.workbench.fixture.BillingFixtures
+import org.broadinstitute.dsde.workbench.model.google.{GcsObjectName, GoogleProject}
+import org.broadinstitute.dsde.workbench.leonardo.model.{Cluster, ClusterRequest}
+import org.broadinstitute.dsde.workbench.leonardo.model.google.ClusterName
+import org.broadinstitute.dsde.workbench.model.google.{GcsObjectName, GcsPath, GoogleProject}
 import org.broadinstitute.dsde.workbench.model.google.{GcsEntity, GcsEntityTypes, GcsObjectName, GcsPath, GcsRoles, GoogleProject}
 import org.scalatest.{BeforeAndAfterAll, FreeSpec}
 
@@ -196,12 +200,13 @@ class NotebookInteractionSpec extends FreeSpec with LeonardoTestUtils with Befor
 
         val userScriptString = "#!/usr/bin/env bash\n\npip2 install arrow"
         val userScriptObjectName = GcsObjectName("user-script.sh")
-        val userScriptUri = s"gs://${bucketName.value}/${userScriptObjectName.value}"
+        val userScriptUri = GcsPath(bucketName, userScriptObjectName)
 
         withNewBucketObject(bucketName, userScriptObjectName, userScriptString, "text/plain") { objectName =>
           googleStorageDAO.setObjectAccessControl(bucketName, objectName, GcsEntity(ronPetServiceAccount, GcsEntityTypes.User), GcsRoles.Owner)
           val clusterName = ClusterName("user-script-cluster" + makeRandomId())
-          withNewCluster(billingProject, clusterName, ClusterRequest(Map(), None, Option(userScriptUri))) { cluster =>
+
+          withNewCluster(billingProject, clusterName, ClusterRequest(Map(), None, Option(userScriptUri), None)) { cluster =>
             Thread.sleep(10000)
             withNewNotebook(cluster) { notebookPage =>
               notebookPage.executeCell("""print 'Hello Notebook!'""") shouldBe Some("Hello Notebook!")

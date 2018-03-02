@@ -12,7 +12,9 @@ import org.broadinstitute.dsde.workbench.ResourceFile
 import org.broadinstitute.dsde.workbench.service.RestClient
 import org.broadinstitute.dsde.workbench.auth.AuthToken
 import org.broadinstitute.dsde.workbench.config.LeoAuthToken
-import org.broadinstitute.dsde.workbench.leonardo.StringValueClass.LabelMap
+import org.broadinstitute.dsde.workbench.leonardo.model.Cluster.LabelMap
+import org.broadinstitute.dsde.workbench.leonardo.model.{Cluster, ClusterError, ClusterRequest, ServiceAccountInfo}
+import org.broadinstitute.dsde.workbench.leonardo.model.google._
 import org.broadinstitute.dsde.workbench.model.WorkbenchEmail
 import org.broadinstitute.dsde.workbench.model.google._
 import org.openqa.selenium.WebDriver
@@ -35,53 +37,9 @@ object Leonardo extends RestClient with LazyLogging {
   }
 
   object cluster {
-    // TODO: custom JSON deserializer
-    // the default doesn't handle some fields correctly so here they're strings
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private case class ClusterKluge(clusterName: ClusterName,
-                                    googleId: UUID,
-                                    googleProject: String,
-                                    serviceAccountInfo: Map[String, String],
-                                    machineConfig: Map[String, String],
-                                    clusterUrl: URL,
-                                    operationName: OperationName,
-                                    status: String,
-                                    hostIp: Option[IP],
-                                    creator: String,
-                                    createdDate: String,
-                                    destroyedDate: Option[String],
-                                    labels: LabelMap,
-                                    jupyterExtensionUri: Option[String],
-                                    jupyterUserScriptUri: Option[String],
-                                    stagingBucket: String,
-                                    errors:List[ClusterError]) {
-
-      def toCluster = Cluster(clusterName,
-        googleId,
-        GoogleProject(googleProject),
-        ServiceAccountInfo(serviceAccountInfo),
-        MachineConfig(machineConfig),
-        clusterUrl,
-        operationName,
-        ClusterStatus.withName(status),
-        hostIp,
-        WorkbenchEmail(creator),
-        Instant.parse(createdDate),
-        destroyedDate map Instant.parse,
-        labels,
-        jupyterExtensionUri map (parseGcsPath(_).right.get),
-        jupyterUserScriptUri map (parseGcsPath(_).right.get),
-        Some(GcsBucketName(stagingBucket)),
-        errors
-      )
-    }
 
     def handleClusterResponse(response: String): Cluster = {
-      // TODO: the Leo API returns instances which are not recognized by this JSON parser.
-      // Ingoring unknown properties to work around it.
-      // ClusterKluge will be removed anyway in https://github.com/DataBiosphere/leonardo/pull/236
-      val newMapper = mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-      newMapper.readValue(response, classOf[ClusterKluge]).toCluster
+      mapper.readValue(response, classOf[Cluster])
     }
 
     def handleClusterSeqResponse(response: String): List[Cluster] = {
@@ -90,12 +48,12 @@ object Leonardo extends RestClient with LazyLogging {
 
       mapper.readValue(response, classOf[List[_]]).map { clusterAsAny =>
         val clusterAsJson = mapper.writeValueAsString(clusterAsAny)
-        mapper.readValue(clusterAsJson, classOf[ClusterKluge]).toCluster
+        mapper.readValue(clusterAsJson, classOf[Cluster])
       }
     }
 
     def clusterPath(googleProject: GoogleProject, clusterName: ClusterName): String =
-      s"api/cluster/${googleProject.value}/${clusterName.string}"
+      s"api/cluster/${googleProject.value}/${clusterName.value}"
 
     def list()(implicit token: AuthToken): Seq[Cluster] = {
       logger.info(s"Listing all active clusters: GET /api/clusters")
@@ -145,7 +103,7 @@ object Leonardo extends RestClient with LazyLogging {
     }
 
     def notebooksPath(googleProject: GoogleProject, clusterName: ClusterName): String =
-      s"notebooks/${googleProject.value}/${clusterName.string}"
+      s"notebooks/${googleProject.value}/${clusterName.value}"
 
     def contentsPath(googleProject: GoogleProject, clusterName: ClusterName, contentPath: String): String =
       s"${notebooksPath(googleProject, clusterName)}/api/contents/$contentPath"
@@ -187,7 +145,7 @@ object Leonardo extends RestClient with LazyLogging {
 
     def get(googleProject: GoogleProject, clusterName: ClusterName)(implicit token: AuthToken, webDriver: WebDriver) = {
       val localhost = java.net.InetAddress.getLocalHost().getHostName()
-      val url = s"http://${localhost}:9090/${googleProject.value}/${clusterName.string}/client?token=${token.value}"
+      val url = s"http://${localhost}:9090/${googleProject.value}/${clusterName.value}/client?token=${token.value}"
       logger.info(s"Get dummy client: $url")
       new DummyClientPage(url).open
     }
@@ -220,7 +178,7 @@ object Leonardo extends RestClient with LazyLogging {
       val replacementMap = Map(
         "leoBaseUrl" -> url,
         "googleProject" -> googleProject.value,
-        "clusterName" -> clusterName.string,
+        "clusterName" -> clusterName.value,
         "token" -> token.value,
         "googleClientId" -> "some-client"
       )

@@ -8,6 +8,7 @@ object Dependencies {
   val workbenchModelV   = "0.10-6800f3a"
   val workbenchGoogleV  = "0.16-847c3ff"
   val serviceTestV = "0.8-cd592ce"
+  val leoModelV = "0.1-3a10fa36-SNAP"
 
   val excludeWorkbenchModel =   ExclusionRule(organization = "org.broadinstitute.dsde.workbench", name = "workbench-model_2.11")
   val excludeWorkbenchGoogle =   ExclusionRule(organization = "org.broadinstitute.dsde.workbench", name = "workbench-google_2.11")
@@ -16,6 +17,10 @@ object Dependencies {
   val workbenchGoogle: ModuleID = "org.broadinstitute.dsde.workbench" %% "workbench-google" % workbenchGoogleV excludeAll excludeWorkbenchModel
 
   val workbenchServiceTest: ModuleID = "org.broadinstitute.dsde.workbench" %% "workbench-service-test" % serviceTestV % "test" classifier "tests" excludeAll (
+    excludeWorkbenchModel,
+    excludeWorkbenchGoogle)
+
+  val leoModel: ModuleID = "org.broadinstitute.dsde.workbench" %% "leonardo-model" % leoModelV excludeAll (
     excludeWorkbenchModel,
     excludeWorkbenchGoogle)
 
@@ -48,6 +53,7 @@ object Dependencies {
 
     workbenchModel,
     workbenchGoogle,
+    leoModel,
     workbenchServiceTest,
 
     // required by workbenchGoogle
