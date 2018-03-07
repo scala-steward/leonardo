@@ -48,7 +48,8 @@ class ClusterDnsCacheSpec extends TestKit(ActorSystem("leonardotest")) with Flat
     jupyterExtensionUri = Some(jupyterExtensionUri),
     jupyterUserScriptUri = Some(jupyterUserScriptUri),
     Some(GcsBucketName("testStagingBucket1")),
-    Set.empty
+    List.empty,
+    Set.empty,
   )
 
   val c2 = Cluster(
@@ -68,6 +69,7 @@ class ClusterDnsCacheSpec extends TestKit(ActorSystem("leonardotest")) with Flat
     None,
     None,
     Some(GcsBucketName("testStagingBucket2")),
+    List.empty,
     Set.empty
   )
 
@@ -88,6 +90,7 @@ class ClusterDnsCacheSpec extends TestKit(ActorSystem("leonardotest")) with Flat
     None,
     None,
     Some(GcsBucketName("testStagingBucket3")),
+    List.empty,
     Set.empty
   )
 

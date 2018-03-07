@@ -52,6 +52,7 @@ class ClusterMonitorSpec extends TestKit(ActorSystem("leonardotest")) with FlatS
     None,
     None,
     Some(GcsBucketName("testStagingBucket1")),
+    List.empty,
     Set.empty
   )
 
@@ -72,6 +73,7 @@ class ClusterMonitorSpec extends TestKit(ActorSystem("leonardotest")) with FlatS
     jupyterExtensionUri = Some(jupyterExtensionUri),
     jupyterUserScriptUri = Some(jupyterUserScriptUri),
     Some(GcsBucketName("testStagingBucket1")),
+    List.empty,
     Set(masterInstance, workerInstance1, workerInstance2)
   )
 
@@ -92,6 +94,7 @@ class ClusterMonitorSpec extends TestKit(ActorSystem("leonardotest")) with FlatS
     None,
     None,
     Some(GcsBucketName("testStagingBucket1")),
+    List.empty,
     Set(masterInstance, workerInstance1, workerInstance2)
   )
 
@@ -112,6 +115,7 @@ class ClusterMonitorSpec extends TestKit(ActorSystem("leonardotest")) with FlatS
     None,
     None,
     Some(GcsBucketName("testStagingBucket1")),
+    List.empty,
     Set(masterInstance, workerInstance1, workerInstance2)
   )
 

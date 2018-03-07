@@ -2,6 +2,7 @@ package org.broadinstitute.dsde.workbench.leonardo.db
 
 import java.sql.SQLException
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 import org.broadinstitute.dsde.workbench.leonardo.{CommonTestData, GcsPathUtils}
@@ -16,9 +17,12 @@ class ClusterComponentSpec extends TestComponent with FlatSpecLike with CommonTe
   "ClusterComponent" should "list, save, get, and delete" in isolatedDbTest {
     dbFutureValue { _.clusterQuery.list() } shouldEqual Seq()
 
+    lazy val err1 = ClusterError("some failure", 10, Instant.now().truncatedTo(ChronoUnit.SECONDS))
+    lazy val c1UUID = UUID.randomUUID()
+    lazy val createdDate = Instant.now()
     val c1 = Cluster(
       clusterName = name1,
-      googleId = UUID.randomUUID(),
+      googleId = c1UUID,
       googleProject = project,
       serviceAccountInfo = ServiceAccountInfo(Some(serviceAccountEmail), Some(serviceAccountEmail)),
       machineConfig = MachineConfig(Some(0),Some(""), Some(500)),
@@ -27,12 +31,34 @@ class ClusterComponentSpec extends TestComponent with FlatSpecLike with CommonTe
       status = ClusterStatus.Unknown,
       hostIp = Some(IP("numbers.and.dots")),
       creator = userEmail,
-      createdDate = Instant.now(),
+      createdDate = createdDate,
       destroyedDate = None,
       labels = Map("bam" -> "yes", "vcf" -> "no"),
       jupyterExtensionUri = None,
       jupyterUserScriptUri = None,
       Some(GcsBucketName("testStagingBucket1")),
+      List.empty,
+      Set(masterInstance, workerInstance1, workerInstance2)
+    )
+
+    val c1witherr1 = Cluster(
+      clusterName = name1,
+      googleId = c1UUID,
+      googleProject = project,
+      serviceAccountInfo = ServiceAccountInfo(Some(serviceAccountEmail), Some(serviceAccountEmail)),
+      machineConfig = MachineConfig(Some(0),Some(""), Some(500)),
+      clusterUrl = Cluster.getClusterUrl(project, name1),
+      operationName = OperationName("op1"),
+      status = ClusterStatus.Unknown,
+      hostIp = Some(IP("numbers.and.dots")),
+      creator = userEmail,
+      createdDate = createdDate,
+      destroyedDate = None,
+      labels = Map("bam" -> "yes", "vcf" -> "no"),
+      jupyterExtensionUri = None,
+      jupyterUserScriptUri = None,
+      Some(GcsBucketName("testStagingBucket1")),
+      List(err1),
       Set(masterInstance, workerInstance1, workerInstance2)
     )
 
@@ -53,6 +79,7 @@ class ClusterComponentSpec extends TestComponent with FlatSpecLike with CommonTe
       jupyterExtensionUri = Some(jupyterExtensionUri),
       jupyterUserScriptUri = Some(jupyterUserScriptUri),
       Some(GcsBucketName("testStagingBucket2")),
+      List.empty,
       Set.empty
     )
 
@@ -73,6 +100,7 @@ class ClusterComponentSpec extends TestComponent with FlatSpecLike with CommonTe
       jupyterExtensionUri = Some(jupyterExtensionUri),
       jupyterUserScriptUri = Some(jupyterUserScriptUri),
       Some(GcsBucketName("testStagingBucket3")),
+      List.empty,
       Set.empty
     )
 
@@ -80,6 +108,7 @@ class ClusterComponentSpec extends TestComponent with FlatSpecLike with CommonTe
     dbFutureValue { _.clusterQuery.save(c1, gcsPath("gs://bucket1"), None) } shouldEqual c1
     dbFutureValue { _.clusterQuery.save(c2, gcsPath("gs://bucket2"), Some(serviceAccountKey.id)) } shouldEqual c2
     dbFutureValue { _.clusterQuery.save(c3, gcsPath("gs://bucket3"), Some(serviceAccountKey.id)) } shouldEqual c3
+    val c1Id =  dbFutureValue { _.clusterQuery.getIdByGoogleId(c1.googleId)}.get
     // instances not returned by list* methods
     dbFutureValue { _.clusterQuery.list() } should contain theSameElementsAs Seq(c1.copy(instances = Set.empty), c2.copy(instances = Set.empty), c3.copy(instances = Set.empty))
     // instances are returned by get* methods
@@ -114,6 +143,7 @@ class ClusterComponentSpec extends TestComponent with FlatSpecLike with CommonTe
       jupyterExtensionUri = Some(jupyterExtensionUri),
       jupyterUserScriptUri = Some(jupyterUserScriptUri),
       Some(GcsBucketName("testStagingBucket4")),
+      List.empty,
       Set.empty
     )
     dbFailure { _.clusterQuery.save(c4, gcsPath("gs://bucket3"), Some(serviceAccountKey.id)) } shouldBe a[SQLException]
@@ -138,6 +168,7 @@ class ClusterComponentSpec extends TestComponent with FlatSpecLike with CommonTe
       jupyterExtensionUri = Some(jupyterExtensionUri),
       jupyterUserScriptUri = Some(jupyterUserScriptUri),
       Some(GcsBucketName("testStagingBucket5")),
+      List.empty,
       Set.empty
     )
     dbFailure { _.clusterQuery.save(c5, gcsPath("gs://bucket5"), Some(serviceAccountKey.id)) } shouldBe a[SQLException]
@@ -187,6 +218,7 @@ class ClusterComponentSpec extends TestComponent with FlatSpecLike with CommonTe
       jupyterExtensionUri = None,
       jupyterUserScriptUri = None,
       Some(GcsBucketName("testStagingBucket1")),
+      List.empty,
       Set.empty
     )
 
@@ -207,6 +239,7 @@ class ClusterComponentSpec extends TestComponent with FlatSpecLike with CommonTe
       jupyterExtensionUri = Some(jupyterExtensionUri),
       jupyterUserScriptUri = Some(jupyterUserScriptUri),
       Some(GcsBucketName("testStagingBucket2")),
+      List.empty,
       Set.empty
     )
 
@@ -227,6 +260,7 @@ class ClusterComponentSpec extends TestComponent with FlatSpecLike with CommonTe
       jupyterExtensionUri = Some(jupyterExtensionUri),
       jupyterUserScriptUri = Some(jupyterUserScriptUri),
       Some(GcsBucketName("testStagingBucket3")),
+      List.empty,
       Set.empty
     )
 
@@ -276,6 +310,7 @@ class ClusterComponentSpec extends TestComponent with FlatSpecLike with CommonTe
       jupyterExtensionUri = None,
       jupyterUserScriptUri = None,
       Some(GcsBucketName("testStagingBucket1")),
+      List.empty,
       Set(masterInstance, workerInstance1, workerInstance2)
     )
 
@@ -311,6 +346,7 @@ class ClusterComponentSpec extends TestComponent with FlatSpecLike with CommonTe
       jupyterExtensionUri = None,
       jupyterUserScriptUri = None,
       Some(GcsBucketName("testStagingBucket1")),
+      List.empty,
       Set(masterInstance)
     )
 

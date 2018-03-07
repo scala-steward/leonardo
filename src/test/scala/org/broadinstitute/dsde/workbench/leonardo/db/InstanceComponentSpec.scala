@@ -31,6 +31,7 @@ class InstanceComponentSpec extends TestComponent with FlatSpecLike with CommonT
     jupyterExtensionUri = None,
     jupyterUserScriptUri = None,
     Some(GcsBucketName("testStagingBucket1")),
+    List.empty,
     Set.empty
   )
 

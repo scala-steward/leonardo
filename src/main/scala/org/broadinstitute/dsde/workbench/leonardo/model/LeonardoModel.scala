@@ -33,6 +33,10 @@ case class ClusterResource(value: String) extends ValueObject
 case class ServiceAccountInfo(clusterServiceAccount: Option[WorkbenchEmail],
                               notebookServiceAccount: Option[WorkbenchEmail])
 
+case class ClusterError(errorMessage: String,
+                        errorCode: Int,
+                        timestamp: Instant)
+
 // The cluster itself
 // Also the API response for "list clusters" and "get active cluster"
 case class Cluster(clusterName: ClusterName,
@@ -261,7 +265,7 @@ object LeonardoJsonSupport extends SprayJsonSupport with DefaultJsonProtocol {
 
   implicit val ClusterErrorFormat = jsonFormat3(ClusterError.apply)
 
-  implicit val ClusterFormat = jsonFormat17(Cluster.apply)
+  implicit val ClusterFormat = jsonFormat18(Cluster.apply)
 
   implicit val DefaultLabelsFormat = jsonFormat7(DefaultLabels.apply)
 
