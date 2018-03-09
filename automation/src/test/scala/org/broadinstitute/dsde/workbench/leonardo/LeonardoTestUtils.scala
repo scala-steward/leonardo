@@ -159,6 +159,38 @@ trait LeonardoTestUtils extends WebBrowserSpec with Matchers with Eventually wit
     }
   }
 
+  def stopAndMonitor(googleProject: GoogleProject, clusterName: ClusterName)(implicit token: AuthToken): Unit = {
+    Leonardo.cluster.stop(googleProject, clusterName) shouldBe
+      "The request has been accepted for processing, but the processing has not been completed."
+
+    // verify with get()
+    val stoppingCluster = Leonardo.cluster.get(googleProject, clusterName)
+    stoppingCluster.status shouldBe ClusterStatus.Stopping
+
+    // wait until in Stopped state
+    implicit val patienceConfig: PatienceConfig = clusterPatience
+    eventually {
+      val status = Leonardo.cluster.get(googleProject, clusterName).status
+      status shouldBe ClusterStatus.Stopped
+    }
+  }
+
+  def startAndMonitor(googleProject: GoogleProject, clusterName: ClusterName)(implicit token: AuthToken): Unit = {
+    Leonardo.cluster.start(googleProject, clusterName) shouldBe
+      "The request has been accepted for processing, but the processing has not been completed."
+
+    // verify with get()
+    val stoppingCluster = Leonardo.cluster.get(googleProject, clusterName)
+    stoppingCluster.status shouldBe ClusterStatus.Starting
+
+    // wait until in Stopped state
+    implicit val patienceConfig: PatienceConfig = clusterPatience
+    eventually {
+      val status = Leonardo.cluster.get(googleProject, clusterName).status
+      status shouldBe ClusterStatus.Running
+    }
+  }
+
   def randomClusterName: ClusterName = ClusterName(s"automation-test-a${makeRandomId().toLowerCase}z")
 
   def defaultClusterRequest: ClusterRequest = ClusterRequest(Map("foo" -> makeRandomId()))
@@ -266,6 +298,14 @@ trait LeonardoTestUtils extends WebBrowserSpec with Matchers with Eventually wit
   def withNewNotebook[T](cluster: Cluster, kernel: Kernel = Python2)(testCode: NotebookPage => T)(implicit webDriver: WebDriver, token: AuthToken): T = {
     withNotebooksListPage(cluster) { notebooksListPage =>
       notebooksListPage.withNewNotebook(kernel) { notebookPage =>
+        testCode(notebookPage)
+      }
+    }
+  }
+
+  def withOpenNotebook[T](cluster: Cluster, notebookPath: File)(testCode: NotebookPage => T)(implicit webDriver: WebDriver, token: AuthToken): T = {
+    withNotebooksListPage(cluster) { notebooksListPage =>
+      notebooksListPage.withOpenNotebook(notebookPath) { notebookPage =>
         testCode(notebookPage)
       }
     }

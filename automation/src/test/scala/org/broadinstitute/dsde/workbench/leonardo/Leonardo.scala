@@ -125,6 +125,18 @@ object Leonardo extends RestClient with LazyLogging {
       deleteRequest(url + path)
     }
 
+    def stop(googleProject: GoogleProject, clusterName: ClusterName)(implicit token: AuthToken): String = {
+      val path = clusterPath(googleProject, clusterName) + "/stop"
+      logger.info(s"Stopping cluster: POST /$path")
+      postRequest(url + path)
+    }
+
+    def start(googleProject: GoogleProject, clusterName: ClusterName)(implicit token: AuthToken): String = {
+      val path = clusterPath(googleProject, clusterName) + "/start"
+      logger.info(s"Starting cluster: POST /$path")
+      postRequest(url + path)
+    }
+
   }
 
   object notebooks {

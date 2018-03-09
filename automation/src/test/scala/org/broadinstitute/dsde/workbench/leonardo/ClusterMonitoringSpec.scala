@@ -1,5 +1,7 @@
 package org.broadinstitute.dsde.workbench.leonardo
 
+import java.io.File
+
 import org.broadinstitute.dsde.workbench.service.{Orchestration, Sam}
 import org.broadinstitute.dsde.workbench.dao.Google.{googleIamDAO, googleStorageDAO}
 import org.broadinstitute.dsde.workbench.fixture.BillingFixtures
@@ -136,6 +138,62 @@ class ClusterMonitoringSpec extends FreeSpec with LeonardoTestUtils with Paralle
       }
     }
 
+    "should pause and resume a cluster" in withWebDriver { implicit driver =>
+      withCleanBillingProject(hermioneCreds) { projectName =>
+        val project = GoogleProject(projectName)
+
+        Orchestration.billing.addUserToBillingProject(projectName, ronEmail, Orchestration.billing.BillingProjectRole.User)(hermioneAuthToken)
+
+        implicit val token = ronAuthToken
+
+        // Create a cluster
+        withNewCluster(project) { cluster =>
+
+          val cellOutput = "Pause/resume test"
+
+          // Create a notebook and execute a cell
+          withNewNotebook(cluster, kernel = Python3) { notebookPage =>
+            notebookPage.executeCell("""print("str")""") shouldBe Some(cellOutput)
+          }
+
+          // Stop the cluster
+          stopAndMonitor(cluster.googleProject, cluster.clusterName)
+
+          // Verify notebook error
+          // TODO
+          Leonardo.notebooks.get(cluster.googleProject, cluster.clusterName).open.pageSource shouldBe "429 error"
+
+          // Start the cluster
+          startAndMonitor(cluster.googleProject, cluster.clusterName)
+
+          // TODO make tests rename notebooks?
+          val notebookPath = new File("Untitled.ipynb")
+          withOpenNotebook(cluster, notebookPath) { notebookPage =>
+            // old output should still exist
+            notebookPage.cellOutput(notebookPage.lastCell) shouldBe Some(cellOutput)
+            // execute a new cell to make sure the notebook kernel still works
+            notebookPage.executeCell("sum(range(1,10))") shouldBe Some("45")
+          }
+        }
+
+      }
+    }
+
+    "should be able to delete a stopped cluster" in withWebDriver { implicit driver =>
+      withCleanBillingProject(hermioneCreds) { projectName =>
+        val project = GoogleProject(projectName)
+
+        Orchestration.billing.addUserToBillingProject(projectName, ronEmail, Orchestration.billing.BillingProjectRole.User)(hermioneAuthToken)
+
+        implicit val token = ronAuthToken
+
+        // Create a cluster
+        withNewCluster(project) { cluster =>
+          // Stop the cluster
+          stopAndMonitor(cluster.googleProject, cluster.clusterName)
+        }
+        // Delete should succeed
+    }
 
   }
 
