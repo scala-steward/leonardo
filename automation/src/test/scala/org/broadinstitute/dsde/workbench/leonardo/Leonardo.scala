@@ -79,6 +79,7 @@ object Leonardo extends RestClient with LazyLogging {
     def handleClusterResponse(response: String): Cluster = {
       // TODO: the Leo API returns instances which are not recognized by this JSON parser.
       // Ingoring unknown properties to work around it.
+      // ClusterKluge will be removed anyway in https://github.com/DataBiosphere/leonardo/pull/236
       val newMapper = mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
       newMapper.readValue(response, classOf[ClusterKluge]).toCluster
     }

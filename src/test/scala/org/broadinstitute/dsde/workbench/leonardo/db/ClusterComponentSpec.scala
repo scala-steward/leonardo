@@ -110,12 +110,13 @@ class ClusterComponentSpec extends TestComponent with FlatSpecLike with CommonTe
     dbFutureValue { _.clusterQuery.save(c3, gcsPath("gs://bucket3"), Some(serviceAccountKey.id)) } shouldEqual c3
     val c1Id =  dbFutureValue { _.clusterQuery.getIdByGoogleId(c1.googleId)}.get
     // instances not returned by list* methods
-    dbFutureValue { _.clusterQuery.list() } should contain theSameElementsAs Seq(c1.copy(instances = Set.empty), c2.copy(instances = Set.empty), c3.copy(instances = Set.empty))
+    dbFutureValue { _.clusterQuery.list() } should contain theSameElementsAs Seq(c1, c2, c3).map(_.copy(instances = Set.empty))
     // instances are returned by get* methods
     dbFutureValue { _.clusterQuery.getActiveClusterByName(c1.googleProject, c1.clusterName) } shouldEqual Some(c1)
     dbFutureValue { _.clusterQuery.getActiveClusterByName(c2.googleProject, c2.clusterName) } shouldEqual Some(c2)
     dbFutureValue { _.clusterQuery.getActiveClusterByName(c3.googleProject, c3.clusterName) } shouldEqual Some(c3)
-    dbFutureValue { _.clusterQuery.getByGoogleId(c1.googleId) } shouldEqual Some(c1)
+    dbFutureValue { _.clusterErrorQuery.save(c1Id, err1) }
+    dbFutureValue { _.clusterQuery.getByGoogleId(c1.googleId) } shouldEqual Some(c1witherr1)
     dbFutureValue { _.clusterQuery.getByGoogleId(c2.googleId) } shouldEqual Some(c2)
     dbFutureValue { _.clusterQuery.getByGoogleId(c3.googleId) } shouldEqual Some(c3)
     dbFutureValue { _.clusterQuery.getServiceAccountKeyId(c1.googleProject, c1.clusterName) } shouldEqual None

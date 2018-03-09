@@ -181,10 +181,6 @@ if [[ "${ROLE}" == 'Master' ]]; then
       docker exec -u root -d ${JUPYTER_SERVER_NAME} ${JUPYTER_HOME}/${JUPYTER_USER_SCRIPT}
     fi
 
-    # Install the jupyter notebook startup script in instance metadata so it runs on startup.
-    # This is needed to support pause/resume clusters.
-    #gcloud compute instances add-metadata ${NAME} --zone ${ZONE} --metadata startup-script="docker exec -d ${JUPYTER_SERVER_NAME} ${JUPYTER_NOTEBOOK}"
-
     log 'Starting Jupyter Notebook...'
     docker exec -d ${JUPYTER_SERVER_NAME} ${JUPYTER_NOTEBOOK}
 

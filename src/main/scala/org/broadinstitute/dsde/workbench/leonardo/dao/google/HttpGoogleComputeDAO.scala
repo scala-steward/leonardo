@@ -53,15 +53,14 @@ class HttpGoogleComputeDAO(appName: String,
 
     retryWithRecoverWhen500orGoogleError { () =>
       Option(executeGoogleRequest(request)) map { gi =>
-        gi.getCreationTimestamp
         Instance(
           instanceKey,
           gi.getId,
           InstanceStatus.withNameInsensitive(gi.getStatus),
           getInstanceIP(gi),
-          None,
+          dataprocRole = None,
           parseGoogleTimestamp(gi.getCreationTimestamp).getOrElse(Instant.now),
-          None)
+          destroyedDate = None)
       }
     } {
       case e: HttpResponseException if e.getStatusCode == StatusCodes.NotFound.intValue => None
@@ -99,10 +98,10 @@ class HttpGoogleComputeDAO(appName: String,
     val request = compute.firewalls().get(googleProject.value, firewallRule.name.value)
     val response = retryWithRecoverWhen500orGoogleError { () =>
       executeGoogleRequest(request)
-      Future.successful(())
+      ()
     } {
       case e: HttpResponseException if e.getStatusCode == StatusCodes.NotFound.intValue => addFirewallRule(googleProject, firewallRule)
-    } flatten
+    }
 
     response.handleGoogleException(googleProject, Some(firewallRule.name.value))
   }

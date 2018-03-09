@@ -184,6 +184,13 @@ trait ClusterComponent extends LeoComponent {
       }
     }
 
+    // for testing
+    private[leonardo] def getIdByGoogleId(googleId: UUID): DBIO[Option[Long]] = {
+      clusterQuery.filter { _.googleId === googleId }.result map { recs =>
+        recs.headOption map { _.id }
+      }
+    }
+
     def getInitBucket(project: GoogleProject, name: ClusterName): DBIO[Option[GcsPath]] = {
       clusterQuery
         .filter { _.googleProject === project.value }
@@ -241,12 +248,6 @@ trait ClusterComponent extends LeoComponent {
 
     def updateClusterStatus(googleId: UUID, newStatus: ClusterStatus): DBIO[Int] = {
       clusterQuery.filter { _.googleId === googleId }.map(_.status).update(newStatus.toString)
-    }
-
-    def getIdByGoogleId(googleId: UUID): DBIO[Option[Long]] = {
-      clusterQuery.filter { _.googleId === googleId }.result map { recs =>
-        recs.headOption map { _.id }
-      }
     }
 
     def listByLabels(labelMap: LabelMap, includeDeleted: Boolean): DBIO[Seq[Cluster]] = {
@@ -379,11 +380,6 @@ trait ClusterComponent extends LeoComponent {
         errors map clusterErrorQuery.unmarshallClusterErrorRecord,
         instanceRecords map (ClusterComponent.this.instanceQuery.unmarshalInstance) toSet
       )
-    }
-
-    // for testing
-    private[leonardo] def getClusterId(googleId: UUID): DBIO[Option[Long]] = {
-      clusterQuery.filter(_.googleId === googleId).map(_.id).result.map(_.headOption)
     }
   }
 

@@ -85,7 +85,8 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
     network = FirewallRuleNetwork(proxyConfig.firewallVPCNetwork),
     targetTags = List(NetworkTag(proxyConfig.networkTag)))
 
-  private lazy val startupScript: immutable.Map[String, String] = {
+  // Startup script to install on the cluster master node. This is needed to support pause/resume clusters.
+  private lazy val masterInstanceStartupScript: immutable.Map[String, String] = {
     immutable.Map("startup-script" -> s"docker exec -d ${dataprocConfig.jupyterServerName} /usr/local/bin/jupyter notebook")
   }
 
@@ -235,7 +236,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
           // Install a startup script on the master node so Jupyter starts back up again once the instance is restarted
           instance.dataprocRole match {
             case Some(Master) =>
-              googleComputeDAO.addInstanceMetadata(instance.key, startupScript).flatMap { _ =>
+              googleComputeDAO.addInstanceMetadata(instance.key, masterInstanceStartupScript).flatMap { _ =>
                 googleComputeDAO.stopInstance(instance.key)
               }
             case _ => googleComputeDAO.stopInstance(instance.key)

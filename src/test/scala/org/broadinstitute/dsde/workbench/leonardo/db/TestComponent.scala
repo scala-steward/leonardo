@@ -35,6 +35,6 @@ trait TestComponent extends Matchers with ScalaFutures
   }
 
   protected def getClusterId(googleId: UUID): Long = {
-    dbFutureValue { _.clusterQuery.getClusterId(googleId) }.get
+    dbFutureValue { _.clusterQuery.getIdByGoogleId(googleId) }.get
   }
 }
