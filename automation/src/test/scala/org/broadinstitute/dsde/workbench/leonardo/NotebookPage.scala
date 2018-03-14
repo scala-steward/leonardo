@@ -46,6 +46,9 @@ class NotebookPage(override val url: String)(override implicit val authToken: Au
   // File -> Download as -> ipynb
   lazy val downloadSelection: Query = cssSelector("[id='download_ipynb']")
 
+  // File -> Save and Checkpoint
+  lazy val saveAndCheckpointSelection: Query = cssSelector("[id='save_checkpoint']")
+
   // Cell -> Run All Cells
   lazy val runAllCellsSelection: Query = cssSelector("[id='run_all_cells']")
 
@@ -87,7 +90,16 @@ class NotebookPage(override val url: String)(override implicit val authToken: Au
     click on (await enabled downloadSelection)
   }
 
+  def saveAndCheckpoint(): Unit = {
+    click on fileMenu
+    click on (await enabled saveAndCheckpointSelection)
+  }
+
   lazy val cells: Query = cssSelector(".CodeMirror")
+
+  def firstCell: WebElement = {
+    webDriver.findElements(cells.by).asScala.toList.head
+  }
 
   def lastCell: WebElement = {
     webDriver.findElements(cells.by).asScala.toList.last

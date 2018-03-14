@@ -2,13 +2,16 @@ package org.broadinstitute.dsde.workbench.leonardo
 
 import java.io.File
 
-import org.broadinstitute.dsde.workbench.service.{Orchestration, Sam}
+import org.broadinstitute.dsde.workbench.service.{Orchestration, RestException, Sam}
 import org.broadinstitute.dsde.workbench.dao.Google.{googleIamDAO, googleStorageDAO}
 import org.broadinstitute.dsde.workbench.fixture.BillingFixtures
 import org.broadinstitute.dsde.workbench.model.google.GcsEntityTypes.Group
 import org.broadinstitute.dsde.workbench.model.google.GcsRoles.Reader
 import org.broadinstitute.dsde.workbench.model.google.{GcsEntity, GcsObjectName, GcsPath, GoogleProject, parseGcsPath}
+import org.scalactic.source.Position
 import org.scalatest.{FreeSpec, ParallelTestExecution}
+
+import scala.util.{Success, Try}
 
 class ClusterMonitoringSpec extends FreeSpec with LeonardoTestUtils with ParallelTestExecution with BillingFixtures {
   "Leonardo clusters" - {
@@ -148,35 +151,52 @@ class ClusterMonitoringSpec extends FreeSpec with LeonardoTestUtils with Paralle
 
         // Create a cluster
         withNewCluster(project) { cluster =>
-
-          val cellOutput = "Pause/resume test"
+          val printStr = "Pause/resume test"
 
           // Create a notebook and execute a cell
           withNewNotebook(cluster, kernel = Python3) { notebookPage =>
-            notebookPage.executeCell("""print("str")""") shouldBe Some(cellOutput)
+            notebookPage.executeCell(s"""print("$printStr")""") shouldBe Some(printStr)
+            notebookPage.saveAndCheckpoint()
           }
 
           // Stop the cluster
           stopAndMonitor(cluster.googleProject, cluster.clusterName)
 
           // Verify notebook error
-          // TODO
-          Leonardo.notebooks.get(cluster.googleProject, cluster.clusterName).open.pageSource shouldBe "429 error"
+          val caught = the [RestException] thrownBy {
+            Leonardo.notebooks.getApi(cluster.googleProject, cluster.clusterName)
+          }
+          caught.message shouldBe s"""{"statusCode":422,"source":"leonardo","causes":[],"exceptionClass":"org.broadinstitute.dsde.workbench.leonardo.service.ClusterPausedException","stackTrace":[],"message":"Cluster ${projectName}/${cluster.clusterName.string} is stopped. Start your cluster before proceeding."}"""
 
           // Start the cluster
           startAndMonitor(cluster.googleProject, cluster.clusterName)
+
+          // TODO cluster is not proxyable yet even after Google says it's ok
+          eventually {
+            logger.info("Checking if cluster is proxyable yet")
+            val getResult = Try(Leonardo.notebooks.getApi(cluster.googleProject, cluster.clusterName))
+            logger.info("Proxy get result is " + getResult)
+            getResult.isSuccess shouldBe true
+            getResult.get should not include "ProxyException"
+
+          }(startPatience, implicitly[Position])
+
+          logger.info("Sleeping 1 minute to make sure restarted cluster is proxyable")
+          Thread.sleep(60*1000)
 
           // TODO make tests rename notebooks?
           val notebookPath = new File("Untitled.ipynb")
           withOpenNotebook(cluster, notebookPath) { notebookPage =>
             // old output should still exist
-            notebookPage.cellOutput(notebookPage.lastCell) shouldBe Some(cellOutput)
+            logger.info("Checking for existing cell output")
+            notebookPage.cellOutput(notebookPage.firstCell) shouldBe Some(printStr)
             // execute a new cell to make sure the notebook kernel still works
+            logger.info("Executing new cell")
             notebookPage.executeCell("sum(range(1,10))") shouldBe Some("45")
           }
         }
 
-      }
+      }(hermioneAuthToken)
     }
 
     "should be able to delete a stopped cluster" in withWebDriver { implicit driver =>
@@ -193,6 +213,7 @@ class ClusterMonitoringSpec extends FreeSpec with LeonardoTestUtils with Paralle
           stopAndMonitor(cluster.googleProject, cluster.clusterName)
         }
         // Delete should succeed
+      }
     }
 
   }

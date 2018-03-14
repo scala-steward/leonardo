@@ -159,6 +159,12 @@ object Leonardo extends RestClient with LazyLogging {
       new NotebooksListPage(url + path)
     }
 
+    def getApi(googleProject: GoogleProject, clusterName: ClusterName)(implicit token: AuthToken, webDriver: WebDriver): String = {
+      val path = notebooksPath(googleProject, clusterName)
+      logger.info(s"Get notebook: GET /$path")
+      parseResponse(getRequest(url + path))
+    }
+
     def localize(googleProject: GoogleProject, clusterName: ClusterName, locMap: Map[String, String])(implicit token: AuthToken): String = {
       val path = localizePath(googleProject, clusterName)
       logger.info(s"Localize notebook files: POST /$path")
