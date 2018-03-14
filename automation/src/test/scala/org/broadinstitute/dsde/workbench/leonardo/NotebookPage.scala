@@ -115,6 +115,7 @@ class NotebookPage(override val url: String)(override implicit val authToken: Au
   def executeCell(code: String, timeout: FiniteDuration = 1 minute): Option[String] = {
     await enabled cells
     val cell = lastCell
+    click on cell
     val jsEscapedCode = StringEscapeUtils.escapeEcmaScript(code)
     executeScript(s"""arguments[0].CodeMirror.setValue("$jsEscapedCode");""", cell)
     click on runCellButton

@@ -175,7 +175,6 @@ class ClusterMonitoringSpec extends FreeSpec with LeonardoTestUtils with Paralle
           eventually {
             logger.info("Checking if cluster is proxyable yet")
             val getResult = Try(Leonardo.notebooks.getApi(cluster.googleProject, cluster.clusterName))
-            logger.info("Proxy get result is " + getResult)
             getResult.isSuccess shouldBe true
             getResult.get should not include "ProxyException"
 
@@ -188,15 +187,15 @@ class ClusterMonitoringSpec extends FreeSpec with LeonardoTestUtils with Paralle
           val notebookPath = new File("Untitled.ipynb")
           withOpenNotebook(cluster, notebookPath) { notebookPage =>
             // old output should still exist
-            logger.info("Checking for existing cell output")
-            notebookPage.cellOutput(notebookPage.firstCell) shouldBe Some(printStr)
+            val firstCell = notebookPage.firstCell
+            val lastCell = notebookPage.lastCell
+            notebookPage.cellOutput(firstCell) shouldBe Some(printStr)
             // execute a new cell to make sure the notebook kernel still works
-            logger.info("Executing new cell")
             notebookPage.executeCell("sum(range(1,10))") shouldBe Some("45")
           }
         }
 
-      }(hermioneAuthToken)
+      }
     }
 
     "should be able to delete a stopped cluster" in withWebDriver { implicit driver =>
