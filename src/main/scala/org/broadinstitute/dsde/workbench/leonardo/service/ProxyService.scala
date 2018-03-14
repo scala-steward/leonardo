@@ -5,6 +5,7 @@ import java.util.concurrent.TimeUnit
 
 import akka.actor.{ActorRef, ActorSystem}
 import akka.http.scaladsl.Http
+import akka.http.scaladsl.model.headers.`Content-Disposition`
 import akka.http.scaladsl.model.Uri.Host
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.model.ws._
@@ -117,7 +118,13 @@ class ProxyService(proxyConfig: ProxyConfig,
         // The presence of this header distinguishes WebSocket from http requests.
         val responseFuture = request.header[UpgradeToWebSocket] match {
           case Some(upgrade) => handleWebSocketRequest(targetHost, request, upgrade)
-          case None => handleHttpRequest(targetHost, request)
+          case None =>
+            val responseFuture = handleHttpRequest(targetHost, request)
+            responseFuture.map { response =>
+              logger.info(s"Response content disposition is ${response.header[`Content-Disposition`]}")
+              response
+            }
+            responseFuture
         }
         responseFuture recover { case e =>
           logger.error("Error occurred in Jupyter proxy", e)
