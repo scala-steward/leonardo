@@ -220,8 +220,12 @@ class ProxyService(proxyConfig: ProxyConfig,
     // If we got an invalid WebSocketUpgradeResponse, simply return it without proxying any additional messages.
     responseFuture.map {
       case ValidUpgrade(response, chosenSubprotocol) =>
+        val source = Source.fromPublisher(publisher).map { msg =>
+          logger.info(s"Websockets: got message type [${msg.getClass.getName}] and data [$msg]")
+          msg
+        }
         val webSocketResponse = upgrade.handleMessages(
-          Flow.fromSinkAndSource(Sink.fromSubscriber(subscriber), Source.fromPublisher(publisher)),
+          Flow.fromSinkAndSource(Sink.fromSubscriber(subscriber), source),
           chosenSubprotocol
         )
         webSocketResponse.withHeaders(webSocketResponse.headers ++ filterHeaders(response.headers))
