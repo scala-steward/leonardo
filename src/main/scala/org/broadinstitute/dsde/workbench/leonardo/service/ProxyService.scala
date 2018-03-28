@@ -113,6 +113,7 @@ class ProxyService(proxyConfig: ProxyConfig,
     logger.debug(s"Received proxy request for user user $userInfo")
     getTargetHost(googleProject, clusterName) flatMap {
       case ClusterReady(targetHost) =>
+        logger.info(s"proxyInternal: $googleProject/$clusterName - URI: ${request.uri} - Headers: ${request.headers}")
         // If this is a WebSocket request (e.g. wss://leo:8080/...) then akka-http injects a
         // virtual UpgradeToWebSocket header which contains facilities to handle the WebSocket data.
         // The presence of this header distinguishes WebSocket from http requests.
