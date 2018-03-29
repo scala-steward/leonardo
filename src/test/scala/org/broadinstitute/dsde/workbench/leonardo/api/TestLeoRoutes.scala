@@ -48,7 +48,6 @@ trait TestLeoRoutes { this: ScalatestRouteTest with ScalaFutures =>
   val clusterDefaultsConfig = config.as[ClusterDefaultsConfig]("clusterDefaults")
   val mockGoogleDataprocDAO = new MockGoogleDataprocDAO
   val mockGoogleComputeDAO = new MockGoogleComputeDAO
-  val extensionPath = GcsPath(GcsBucketName("bucket"), GcsObjectName("my_extension.tar.gz"))
   mockGoogleStorageDAO.buckets += extensionPath.bucketName -> Set((extensionPath.objectName, new ByteArrayInputStream("foo".getBytes())))
 
   // TODO look into parameterized tests so both provider impls can both be tested

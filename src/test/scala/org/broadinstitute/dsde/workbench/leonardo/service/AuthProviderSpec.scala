@@ -26,6 +26,7 @@ import org.scalatest.{BeforeAndAfterAll, FreeSpec, Matchers, OptionValues}
 import net.ceedubs.ficus.Ficus._
 import org.broadinstitute.dsde.workbench.google.GoogleStorageDAO
 import org.broadinstitute.dsde.workbench.leonardo.auth.sam.MockPetClusterServiceAccountProvider
+import org.broadinstitute.dsde.workbench.leonardo.dao.google.MockGoogleComputeDAO
 import org.broadinstitute.dsde.workbench.leonardo.model.google.ClusterName
 import org.mockito.Mockito
 
@@ -81,6 +82,7 @@ class AuthProviderSpec extends FreeSpec with ScalatestRouteTest with Matchers wi
   )
 
   val gdDAO = new MockGoogleDataprocDAO
+  val computeDAO = new MockGoogleComputeDAO
   val iamDAO = new MockGoogleIamDAO
   val storageDAO = new MockGoogleStorageDAO
   val samDAO = new MockSamDAO

@@ -7,6 +7,7 @@ import java.util.UUID
 import akka.actor.{ActorRef, ActorSystem, Terminated}
 import akka.testkit.TestKit
 import io.grpc.Status.Code
+import org.broadinstitute.dsde.workbench.google.mock.MockGoogleStorageDAO
 import org.broadinstitute.dsde.workbench.google.{GoogleIamDAO, GoogleStorageDAO}
 import org.broadinstitute.dsde.workbench.leonardo.dao.google.{GoogleComputeDAO, GoogleDataprocDAO}
 import org.broadinstitute.dsde.workbench.leonardo.{CommonTestData, GcsPathUtils}
@@ -156,8 +157,11 @@ class ClusterMonitorSpec extends TestKit(ActorSystem("leonardotest")) with FlatS
   def createClusterSupervisor(gdDAO: GoogleDataprocDAO, computeDAO: GoogleComputeDAO, iamDAO: GoogleIamDAO, storageDAO: GoogleStorageDAO, authProvider: LeoAuthProvider): ActorRef = {
     val cacheActor = system.actorOf(ClusterDnsCache.props(proxyConfig, DbSingleton.ref))
     val bucketHelper = new BucketHelper(dataprocConfig, gdDAO, computeDAO, storageDAO, serviceAccountProvider)
+    val mockPetGoogleStorageDAO: String => GoogleStorageDAO = _ => {
+      new MockGoogleStorageDAO
+    }
     val supervisorActor = system.actorOf(TestClusterSupervisorActor.props(dataprocConfig, gdDAO, computeDAO, iamDAO, storageDAO, DbSingleton.ref, cacheActor, testKit, authProvider))
-    new LeonardoService(dataprocConfig, clusterFilesConfig, clusterResourcesConfig, clusterDefaultsConfig, proxyConfig, swaggerConfig, gdDAO, computeDAO, iamDAO, storageDAO, DbSingleton.ref, supervisorActor, whitelistAuthProvider, serviceAccountProvider, whitelist, bucketHelper)
+    new LeonardoService(dataprocConfig, clusterFilesConfig, clusterResourcesConfig, clusterDefaultsConfig, proxyConfig, swaggerConfig, gdDAO, computeDAO, iamDAO, storageDAO, mockPetGoogleStorageDAO, DbSingleton.ref, supervisorActor, whitelistAuthProvider, serviceAccountProvider, whitelist, bucketHelper)
     supervisorActor
   }
 
@@ -264,7 +268,7 @@ class ClusterMonitorSpec extends TestKit(ActorSystem("leonardotest")) with FlatS
 
       withClusterSupervisor(gdDAO, computeDAO, iamDAO, storageDAO, authProvider, true) { actor =>
         actor ! ClusterCreated(creatingCluster)
-        expectNoMsg(1 second)
+        expectNoMessage(1 second)
 
         val updatedCluster = dbFutureValue { _.clusterQuery.getActiveClusterByName(creatingCluster.googleProject, creatingCluster.clusterName) }
         updatedCluster shouldBe 'defined
@@ -308,7 +312,7 @@ class ClusterMonitorSpec extends TestKit(ActorSystem("leonardotest")) with FlatS
 
     withClusterSupervisor(dao, computeDAO, iamDAO, storageDAO, authProvider, true) { actor =>
       actor ! ClusterCreated(creatingCluster)
-      expectNoMsg(1 second)
+      expectNoMessage(1 second)
 
       val updatedCluster = dbFutureValue { _.clusterQuery.getActiveClusterByName(creatingCluster.googleProject, creatingCluster.clusterName) }
       updatedCluster shouldBe 'defined
@@ -355,7 +359,7 @@ class ClusterMonitorSpec extends TestKit(ActorSystem("leonardotest")) with FlatS
 
     withClusterSupervisor(dao, computeDAO, iamDAO, storageDAO, authProvider, true) { actor =>
       actor ! ClusterCreated(creatingCluster)
-      expectNoMsg(1 second)
+      expectNoMessage(1 second)
 
       val updatedCluster = dbFutureValue { _.clusterQuery.getActiveClusterByName(creatingCluster.googleProject, creatingCluster.clusterName) }
       updatedCluster shouldBe 'defined
@@ -650,7 +654,7 @@ class ClusterMonitorSpec extends TestKit(ActorSystem("leonardotest")) with FlatS
 
     withClusterSupervisor(gdDAO, computeDAO, iamDAO, storageDAO, authProvider, true) { actor =>
       actor ! ClusterCreated(deletingCluster)
-      expectNoMsg(1 second)
+      expectNoMessage(1 second)
 
       val updatedCluster = dbFutureValue { _.clusterQuery.getDeletingClusterByName(deletingCluster.googleProject, deletingCluster.clusterName) }
       updatedCluster shouldBe 'defined
