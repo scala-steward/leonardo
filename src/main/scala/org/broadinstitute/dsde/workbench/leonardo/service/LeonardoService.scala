@@ -223,7 +223,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
       cluster <- getActiveClusterDetails(userInfo, googleProject, clusterName)
 
       //if you've got to here you at least have GetClusterDetails permissions so a 401 is appropriate if you can't actually stop it
-      _ <- checkClusterPermission(userInfo, StopCluster, cluster, throw401 = true)
+      _ <- checkClusterPermission(userInfo, StopStartCluster, cluster, throw401 = true)
 
       _ <- internalStopCluster(userInfo.userEmail, cluster)
     } yield ()
@@ -257,7 +257,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
       cluster <- getActiveClusterDetails(userInfo, googleProject, clusterName)
 
       //if you've got to here you at least have GetClusterDetails permissions so a 401 is appropriate if you can't actually stop it
-      _ <- checkClusterPermission(userInfo, StopCluster, cluster, throw401 = true)
+      _ <- checkClusterPermission(userInfo, StopStartCluster, cluster, throw401 = true)
 
       _ <- internalStartCluster(userInfo.userEmail, cluster)
     } yield ()

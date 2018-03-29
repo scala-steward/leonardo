@@ -228,7 +228,7 @@ paths:
     post:
       summary: Stops a Dataproc cluster
       description: |
-        Stops the instances of a Dataproc cluster, but does not remove attached storage. The
+        Stops the instances of a Dataproc cluster, but retains any data persisted on disk. The
         cluster may be restarted with the /start endpoint.
       operationId: stopCluster
       tags:
@@ -322,6 +322,10 @@ paths:
           description: Cluster not ready
           schema:
             $ref: '#/definitions/ErrorReport'
+        '422':
+          description: Cluster is stopped
+          schema:
+            $ref: '#/definitions/ErrorReport'
         '500':
           description: Internal Error
           schema:
@@ -375,6 +379,10 @@ paths:
             $ref: '#/definitions/ErrorReport'
         '420':
           description: Cluster not ready
+          schema:
+            $ref: '#/definitions/ErrorReport'
+        '422':
+          description: Cluster is stopped
           schema:
             $ref: '#/definitions/ErrorReport'
         '500':
