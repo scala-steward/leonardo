@@ -67,8 +67,7 @@ class SamAuthProvider(val config: Config, serviceAccountProvider: ServiceAccount
     ConnectToCluster -> "connect",
     SyncDataToCluster -> "sync",
     DeleteCluster -> "delete",
-    StopCluster -> "stop",
-    StartCluster -> "start")
+    StopStartCluster -> "stop_start")
 
   /**
     * @param userInfo The user in question
