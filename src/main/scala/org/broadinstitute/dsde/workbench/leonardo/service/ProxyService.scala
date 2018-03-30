@@ -168,8 +168,8 @@ class ProxyService(proxyConfig: ProxyConfig,
     val handler: Future[HttpResponse] = Source.single(newRequest)
       .via(flow)
       .map(fixContentDisposition)
-      .map(r => addKernelSessions(r, newRequest))
-      .map(r => killWebSockets(r, newRequest))
+     // .map(r => addKernelSessions(r, newRequest))
+     // .map(r => killWebSockets(r, newRequest))
       .runWith(Sink.head)
       .flatMap(_.toStrict(5 seconds))
 
@@ -201,21 +201,17 @@ class ProxyService(proxyConfig: ProxyConfig,
   }
 
   private def killWebSockets(httpResponse: HttpResponse, httpRequest: HttpRequest): HttpResponse = {
-   httpRequest.uri.rawQueryString match {
-     case Some(raw) => {
-       logger.info(s"killWebSockets httpRequest.uri.rawQueryString.get: ${raw}")
-       logger.info(s"killWebSockets httpResponse.status: ${httpResponse.status}")
-       if ((httpResponse.status == StatusCodes.NoContent) && (raw.contains("api/sessions/"))) {
-         val sessionId = raw.split("api/sessions/").last
-         logger.info(s"killWebSockets sessionId $sessionId")
-         val kernelId = kernelSessionCache.getIfPresent(sessionId)
-         logger.info(s"killWebSockets kernelId $kernelId")
-         val killSwitch = killSwitchCache.getIfPresent(kernelId)
-         killSwitch.shutdown()
-       }
-     }
-     case None =>
-   }
+    val path = httpRequest.uri.path.toString()
+    logger.info(s"killWebSockets httpRequest.uri.rawQueryString.get: ${path}")
+    logger.info(s"killWebSockets httpResponse.status: ${httpResponse.status}")
+    if ((httpResponse.status == StatusCodes.NoContent) && (path.contains("api/sessions/"))) {
+     val sessionId = path.split("api/sessions/").last
+     logger.info(s"killWebSockets sessionId $sessionId")
+     val kernelId = kernelSessionCache.getIfPresent(sessionId)
+     logger.info(s"killWebSockets kernelId $kernelId")
+     val killSwitch = killSwitchCache.getIfPresent(kernelId)
+     killSwitch.shutdown()
+    }
     httpResponse
   }
 
@@ -270,19 +266,19 @@ class ProxyService(proxyConfig: ProxyConfig,
     // Initialize a Flow for the WebSocket conversation.
     // `Message` is the root of the ADT for WebSocket messages. A Message may be a TextMessage or a BinaryMessage.
 
-    val flow = Flow.fromSinkAndSourceCoupledMat(Sink.asPublisher[Message](fanout = false), Source.asSubscriber[Message].viaMat(KillSwitches.single)(Keep.both))(Keep.both)
+    //val flow = Flow.fromSinkAndSourceCoupledMat(Sink.asPublisher[Message](fanout = false), Source.asSubscriber[Message].viaMat(KillSwitches.single)(Keep.both))(Keep.both)
+    val flow = Flow.fromSinkAndSourceCoupledMat(Sink.asPublisher[Message](fanout = false), Source.asSubscriber[Message])(Keep.both)
 
     // Make a single WebSocketRequest to the notebook server, passing in our Flow. This returns a Future[WebSocketUpgradeResponse].
     // Keep our publisher/subscriber (e.g. sink/source) for use later. These are returned because we specified Keep.both above.
-    val (responseFuture, (publisher, (subscriber, killSwitch))) = Http().singleWebSocketRequest(
+    //val (responseFuture, (publisher, (subscriber, killSwitch))) = Http().singleWebSocketRequest(
+    val (responseFuture, (publisher, subscriber)) = Http().singleWebSocketRequest(
       WebSocketRequest(request.uri.copy(authority = request.uri.authority.copy(host = targetHost, port = proxyConfig.jupyterPort), scheme = "wss"), extraHeaders = filterHeaders(request.headers),
         upgrade.requestedProtocols.headOption),
       flow
     )
 
-    killSwitchCache.put(getKernelId(request.uri.path.toString()), killSwitch)
-
-    val secondFlow = Flow.fromSinkAndSource(Sink.fromSubscriber(subscriber), Source.fromPublisher(publisher))
+    //killSwitchCache.put(getKernelId(request.uri.path.toString()), killSwitch)
 
     // If we got a valid WebSocketUpgradeResponse, call handleMessages with our publisher/subscriber, which are
     // already materialized from the HttpRequest.
@@ -290,7 +286,7 @@ class ProxyService(proxyConfig: ProxyConfig,
     responseFuture.map {
       case ValidUpgrade(response, chosenSubprotocol) =>
         val webSocketResponse = upgrade.handleMessages(
-          secondFlow,
+          Flow.fromSinkAndSource(Sink.fromSubscriber(subscriber), Source.fromPublisher(publisher)),
           chosenSubprotocol
         )
         webSocketResponse.withHeaders(webSocketResponse.headers ++ filterHeaders(response.headers))
