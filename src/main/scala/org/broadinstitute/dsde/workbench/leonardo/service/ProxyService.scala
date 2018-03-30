@@ -10,10 +10,10 @@ import akka.http.scaladsl.model._
 import akka.http.scaladsl.model.headers.`Content-Disposition`
 import akka.http.scaladsl.model.ws._
 import akka.pattern.ask
-import akka.stream.ActorMaterializer
+import akka.stream.{ActorMaterializer, KillSwitches, UniqueKillSwitch}
 import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
 import akka.util.Timeout
-import com.google.common.cache.{CacheBuilder, CacheLoader}
+import com.google.common.cache.{Cache, CacheBuilder, CacheLoader}
 import com.typesafe.scalalogging.LazyLogging
 import org.broadinstitute.dsde.workbench.leonardo.config.ProxyConfig
 import org.broadinstitute.dsde.workbench.leonardo.dao.google.GoogleDataprocDAO
@@ -168,6 +168,7 @@ class ProxyService(proxyConfig: ProxyConfig,
     val handler: Future[HttpResponse] = Source.single(newRequest)
       .via(flow)
       .map(fixContentDisposition)
+      .map(killWebsockets)
       .runWith(Sink.head)
       .flatMap(_.toStrict(5 seconds))
 
@@ -198,6 +199,41 @@ class ProxyService(proxyConfig: ProxyConfig,
     }
   }
 
+  private def killWebsockets(httpResponse: HttpResponse): HttpResponse = {
+   logger.info(s"killWebsockets - httpResponse Entity ${httpResponse.entity.toString}")
+   logger.info(s"killWebsockets - httpResponse Headers ${httpResponse.headers.toString()}")
+   logger.info(s"killWebsockets - httpResponse Status ${httpResponse.status.toString()}")
+   logger.info(s"killWebsockets - httpResponse Protocol ${httpResponse.protocol}")
+
+   httpResponse
+  }
+
+
+//  /* Cache for the bearer token and corresponding google user email */
+//  private[leonardo] val killSwitchCache = CacheBuilder.newBuilder()
+//    .expireAfterWrite(100001, TimeUnit.MINUTES)
+//    .maximumSize(proxyConfig.cacheMaxSize)
+//    .build(
+//      new CacheLoader[String, UniqueKillSwitch] {
+//        def load(key: String) = {
+//          getUniqueKillSwitch(key)
+//        }
+//      }
+//    )
+
+  def getKernelId(path: String): String = {
+//    val regex = "^kernels/(.*)/channel$".r
+//    val foobarbaz = path.collect { case regex(a) => a.trim }
+    logger.info(s"getKernelId path: $path")
+    val pathArray: List[String] = path.split("kernels/").toList
+    val kernelId = pathArray.last.split("/channel").head
+    logger.info(s"kernelId: $kernelId")
+    kernelId
+  }
+
+  val killSwitchCache: Cache[String, UniqueKillSwitch] = CacheBuilder.newBuilder.expireAfterWrite(100001, TimeUnit.MINUTES)
+    .maximumSize(proxyConfig.cacheMaxSize)build()
+
   private def handleWebSocketRequest(targetHost: Host, request: HttpRequest, upgrade: UpgradeToWebSocket): Future[HttpResponse] = {
     logger.debug(s"Opening websocket connection to ${targetHost.address}")
 
@@ -206,15 +242,37 @@ class ProxyService(proxyConfig: ProxyConfig,
 
     // Initialize a Flow for the WebSocket conversation.
     // `Message` is the root of the ADT for WebSocket messages. A Message may be a TextMessage or a BinaryMessage.
-    val flow = Flow.fromSinkAndSourceMat(Sink.asPublisher[Message](fanout = false), Source.asSubscriber[Message])(Keep.both)
+
+//    val flow = Flow.fromSinkAndSourceMat(Sink.asPublisher[Message](fanout = false), Source.asSubscriber[Message])(Keep.both)
+//    val source = Source.asSubscriber[Message].viaMat(KillSwitches.single)(Keep.right)
+
+
+    val flow = Flow.fromSinkAndSourceCoupledMat(Sink.asPublisher[Message](fanout = false), Source.asSubscriber[Message].viaMat(KillSwitches.single)(Keep.both))(Keep.both)
+
+
+//     val flow = Flow.fromSinkAndSourceMat(Sink.asPublisher[Message](fanout = false), Source.asSubscriber[Message]).joinMat(KillSwitches.single)(Keep.both)
+
+//     val flows = Flow.fromSinkAndSourceMat(Sink.asPublisher[Message](fanout = false), Source.asSubscriber[Message])viaMat(KillSwitches.single)(Keep.right)(Keep.both)
+
+//    val countingSrc = Source.asSubscriber[Message].viaMat(KillSwitches.single)(Keep.right)
+//    val lastSnk = Sink.asPublisher[Message](fanout = false)
+
+//    val (killSwitch, last) = countingSrc
+//      .viaMat(KillSwitches.single)(Keep.right)
+//      .toMat(lastSnk)(Keep.both).run()
+
 
     // Make a single WebSocketRequest to the notebook server, passing in our Flow. This returns a Future[WebSocketUpgradeResponse].
     // Keep our publisher/subscriber (e.g. sink/source) for use later. These are returned because we specified Keep.both above.
-    val (responseFuture, (publisher, subscriber)) = Http().singleWebSocketRequest(
+    val (responseFuture, (publisher, (subscriber, killSwitch))) = Http().singleWebSocketRequest(
       WebSocketRequest(request.uri.copy(authority = request.uri.authority.copy(host = targetHost, port = proxyConfig.jupyterPort), scheme = "wss"), extraHeaders = filterHeaders(request.headers),
         upgrade.requestedProtocols.headOption),
       flow
     )
+
+    killSwitchCache.put(getKernelId(request.uri.path.toString()), killSwitch)
+
+    val secondFlow = Flow.fromSinkAndSource(Sink.fromSubscriber(subscriber), Source.fromPublisher(publisher))
 
     // If we got a valid WebSocketUpgradeResponse, call handleMessages with our publisher/subscriber, which are
     // already materialized from the HttpRequest.
@@ -222,7 +280,7 @@ class ProxyService(proxyConfig: ProxyConfig,
     responseFuture.map {
       case ValidUpgrade(response, chosenSubprotocol) =>
         val webSocketResponse = upgrade.handleMessages(
-          Flow.fromSinkAndSource(Sink.fromSubscriber(subscriber), Source.fromPublisher(publisher)),
+          secondFlow,
           chosenSubprotocol
         )
         webSocketResponse.withHeaders(webSocketResponse.headers ++ filterHeaders(response.headers))
