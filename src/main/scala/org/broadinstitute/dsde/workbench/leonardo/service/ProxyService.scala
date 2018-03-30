@@ -168,7 +168,8 @@ class ProxyService(proxyConfig: ProxyConfig,
     val handler: Future[HttpResponse] = Source.single(newRequest)
       .via(flow)
       .map(fixContentDisposition)
-      .map(killWebsockets)
+      .map(r => addKernelSessions(r, newRequest))
+      .map(r => killWebSockets(r, newRequest))
       .runWith(Sink.head)
       .flatMap(_.toStrict(5 seconds))
 
@@ -199,38 +200,59 @@ class ProxyService(proxyConfig: ProxyConfig,
     }
   }
 
-  private def killWebsockets(httpResponse: HttpResponse): HttpResponse = {
+  private def killWebSockets(httpResponse: HttpResponse, httpRequest: HttpRequest): HttpResponse = {
+    logger.info(s"killWebSockets httpRequest.uri.rawQueryString.get: ${httpRequest.uri.rawQueryString.get}")
+    logger.info(s"killWebSockets httpResponse.status: ${httpResponse.status}")
+    if ((httpResponse.status == StatusCodes.NoContent) && (httpRequest.uri.rawQueryString.get.contains("api/sessions/"))) {
+      val sessionId = httpRequest.uri.rawQueryString.get.split("api/sessions/").last
+      logger.info(s"killWebSockets sessionId $sessionId")
+      val kernelId = kernelSessionCache.getIfPresent(sessionId)
+      logger.info(s"killWebSockets kernelId $kernelId")
+      val killSwitch = killSwitchCache.getIfPresent(kernelId)
+      killSwitch.shutdown()
+    }
+    httpResponse
+  }
+
+  private def addKernelSessions(httpResponse: HttpResponse, request: HttpRequest): HttpResponse = {
    logger.info(s"killWebsockets - httpResponse Entity ${httpResponse.entity.toString}")
    logger.info(s"killWebsockets - httpResponse Headers ${httpResponse.headers.toString()}")
    logger.info(s"killWebsockets - httpResponse Status ${httpResponse.status.toString()}")
-   logger.info(s"killWebsockets - httpResponse Protocol ${httpResponse.protocol}")
 
-   httpResponse
+   if (httpResponse.status == StatusCodes.Created && request.uri.rawQueryString.contains("/sessions")) {
+     val strArray: List[String] = httpResponse.entity.toString.split("id\": \"").toList
+     logger.info(s"addKernelSessions strArray: ${strArray.toString()}")
+     if (strArray.size == 3) {
+       val kernelId =
+         if (strArray.head.contains("kernel")) {
+           strArray.tail.head.substring(0, 35)
+         } else strArray.last.substring(0, 35)
+       logger.info(s"stripped kernelId: $kernelId")
+       val sessionId =
+         if (strArray.head.contains("kernel")) {
+           strArray.last.substring(0, 35)
+         } else strArray.tail.head.substring(0, 35)
+       logger.info(s"stripped sessionId: $sessionId")
+       kernelSessionCache.put(sessionId, kernelId)
+     }
+   }
+    httpResponse
   }
 
 
-//  /* Cache for the bearer token and corresponding google user email */
-//  private[leonardo] val killSwitchCache = CacheBuilder.newBuilder()
-//    .expireAfterWrite(100001, TimeUnit.MINUTES)
-//    .maximumSize(proxyConfig.cacheMaxSize)
-//    .build(
-//      new CacheLoader[String, UniqueKillSwitch] {
-//        def load(key: String) = {
-//          getUniqueKillSwitch(key)
-//        }
-//      }
-//    )
-
   def getKernelId(path: String): String = {
-//    val regex = "^kernels/(.*)/channel$".r
-//    val foobarbaz = path.collect { case regex(a) => a.trim }
     logger.info(s"getKernelId path: $path")
     val pathArray: List[String] = path.split("kernels/").toList
     val kernelId = pathArray.last.split("/channel").head
-    logger.info(s"kernelId: $kernelId")
+    logger.info(s"getKernelId kernelId: $kernelId")
     kernelId
   }
 
+  // session id + kernel id
+  val kernelSessionCache: Cache[String, String] = CacheBuilder.newBuilder.expireAfterWrite(100001, TimeUnit.MINUTES)
+    .maximumSize(proxyConfig.cacheMaxSize)build()
+
+  // kernel id + killswitch
   val killSwitchCache: Cache[String, UniqueKillSwitch] = CacheBuilder.newBuilder.expireAfterWrite(100001, TimeUnit.MINUTES)
     .maximumSize(proxyConfig.cacheMaxSize)build()
 
@@ -243,24 +265,7 @@ class ProxyService(proxyConfig: ProxyConfig,
     // Initialize a Flow for the WebSocket conversation.
     // `Message` is the root of the ADT for WebSocket messages. A Message may be a TextMessage or a BinaryMessage.
 
-//    val flow = Flow.fromSinkAndSourceMat(Sink.asPublisher[Message](fanout = false), Source.asSubscriber[Message])(Keep.both)
-//    val source = Source.asSubscriber[Message].viaMat(KillSwitches.single)(Keep.right)
-
-
     val flow = Flow.fromSinkAndSourceCoupledMat(Sink.asPublisher[Message](fanout = false), Source.asSubscriber[Message].viaMat(KillSwitches.single)(Keep.both))(Keep.both)
-
-
-//     val flow = Flow.fromSinkAndSourceMat(Sink.asPublisher[Message](fanout = false), Source.asSubscriber[Message]).joinMat(KillSwitches.single)(Keep.both)
-
-//     val flows = Flow.fromSinkAndSourceMat(Sink.asPublisher[Message](fanout = false), Source.asSubscriber[Message])viaMat(KillSwitches.single)(Keep.right)(Keep.both)
-
-//    val countingSrc = Source.asSubscriber[Message].viaMat(KillSwitches.single)(Keep.right)
-//    val lastSnk = Sink.asPublisher[Message](fanout = false)
-
-//    val (killSwitch, last) = countingSrc
-//      .viaMat(KillSwitches.single)(Keep.right)
-//      .toMat(lastSnk)(Keep.both).run()
-
 
     // Make a single WebSocketRequest to the notebook server, passing in our Flow. This returns a Future[WebSocketUpgradeResponse].
     // Keep our publisher/subscriber (e.g. sink/source) for use later. These are returned because we specified Keep.both above.
