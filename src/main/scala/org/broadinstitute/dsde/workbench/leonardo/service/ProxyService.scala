@@ -266,13 +266,13 @@ class ProxyService(proxyConfig: ProxyConfig,
     // Initialize a Flow for the WebSocket conversation.
     // `Message` is the root of the ADT for WebSocket messages. A Message may be a TextMessage or a BinaryMessage.
 
-    //val flow = Flow.fromSinkAndSourceCoupledMat(Sink.asPublisher[Message](fanout = false), Source.asSubscriber[Message].viaMat(KillSwitches.single)(Keep.both))(Keep.both)
-    val flow = Flow.fromSinkAndSourceMat(Sink.asPublisher[Message](fanout = false), Source.asSubscriber[Message])(Keep.both)
+    val flow = Flow.fromSinkAndSourceMat(Sink.asPublisher[Message](fanout = false), Source.asSubscriber[Message].viaMat(KillSwitches.single)(Keep.both))(Keep.both)
+    //val flow = Flow.fromSinkAndSourceMat(Sink.asPublisher[Message](fanout = false), Source.asSubscriber[Message])(Keep.both)
 
     // Make a single WebSocketRequest to the notebook server, passing in our Flow. This returns a Future[WebSocketUpgradeResponse].
     // Keep our publisher/subscriber (e.g. sink/source) for use later. These are returned because we specified Keep.both above.
-    //val (responseFuture, (publisher, (subscriber, killSwitch))) = Http().singleWebSocketRequest(
-    val (responseFuture, (publisher, subscriber)) = Http().singleWebSocketRequest(
+    val (responseFuture, (publisher, (subscriber, killSwitch))) = Http().singleWebSocketRequest(
+    //val (responseFuture, (publisher, subscriber)) = Http().singleWebSocketRequest(
       WebSocketRequest(request.uri.copy(authority = request.uri.authority.copy(host = targetHost, port = proxyConfig.jupyterPort), scheme = "wss"), extraHeaders = filterHeaders(request.headers),
         upgrade.requestedProtocols.headOption),
       flow
