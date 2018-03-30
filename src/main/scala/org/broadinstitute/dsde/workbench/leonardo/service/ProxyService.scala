@@ -201,16 +201,21 @@ class ProxyService(proxyConfig: ProxyConfig,
   }
 
   private def killWebSockets(httpResponse: HttpResponse, httpRequest: HttpRequest): HttpResponse = {
-    logger.info(s"killWebSockets httpRequest.uri.rawQueryString.get: ${httpRequest.uri.rawQueryString.get}")
-    logger.info(s"killWebSockets httpResponse.status: ${httpResponse.status}")
-    if ((httpResponse.status == StatusCodes.NoContent) && (httpRequest.uri.rawQueryString.get.contains("api/sessions/"))) {
-      val sessionId = httpRequest.uri.rawQueryString.get.split("api/sessions/").last
-      logger.info(s"killWebSockets sessionId $sessionId")
-      val kernelId = kernelSessionCache.getIfPresent(sessionId)
-      logger.info(s"killWebSockets kernelId $kernelId")
-      val killSwitch = killSwitchCache.getIfPresent(kernelId)
-      killSwitch.shutdown()
-    }
+   httpRequest.uri.rawQueryString match {
+     case Some(raw) => {
+       logger.info(s"killWebSockets httpRequest.uri.rawQueryString.get: ${raw}")
+       logger.info(s"killWebSockets httpResponse.status: ${httpResponse.status}")
+       if ((httpResponse.status == StatusCodes.NoContent) && (raw.contains("api/sessions/"))) {
+         val sessionId = raw.split("api/sessions/").last
+         logger.info(s"killWebSockets sessionId $sessionId")
+         val kernelId = kernelSessionCache.getIfPresent(sessionId)
+         logger.info(s"killWebSockets kernelId $kernelId")
+         val killSwitch = killSwitchCache.getIfPresent(kernelId)
+         killSwitch.shutdown()
+       }
+     }
+     case None =>
+   }
     httpResponse
   }
 
