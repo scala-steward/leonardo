@@ -168,8 +168,8 @@ class ProxyService(proxyConfig: ProxyConfig,
     val handler: Future[HttpResponse] = Source.single(newRequest)
       .via(flow)
       .map(fixContentDisposition)
-     // .map(r => addKernelSessions(r, newRequest))
-     // .map(r => killWebSockets(r, newRequest))
+      .map(r => addKernelSessions(r, newRequest))
+      .map(r => killWebSockets(r, newRequest))
       .runWith(Sink.head)
       .flatMap(_.toStrict(5 seconds))
 
@@ -278,7 +278,7 @@ class ProxyService(proxyConfig: ProxyConfig,
       flow
     )
 
-    //killSwitchCache.put(getKernelId(request.uri.path.toString()), killSwitch)
+    killSwitchCache.put(getKernelId(request.uri.path.toString()), killSwitch)
 
     // If we got a valid WebSocketUpgradeResponse, call handleMessages with our publisher/subscriber, which are
     // already materialized from the HttpRequest.
