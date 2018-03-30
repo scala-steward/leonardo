@@ -202,7 +202,7 @@ class ProxyService(proxyConfig: ProxyConfig,
 
   private def killWebSockets(httpResponse: HttpResponse, httpRequest: HttpRequest): HttpResponse = {
     val path = httpRequest.uri.path.toString()
-    logger.info(s"killWebSockets httpRequest.uri.rawQueryString.get: ${path}")
+    logger.info(s"killWebSockets httpRequest.uri.path.toString(): ${path}")
     logger.info(s"killWebSockets httpResponse.status: ${httpResponse.status}")
     if ((httpResponse.status == StatusCodes.NoContent) && (path.contains("api/sessions/"))) {
      val sessionId = path.split("api/sessions/").last
@@ -216,11 +216,15 @@ class ProxyService(proxyConfig: ProxyConfig,
   }
 
   private def addKernelSessions(httpResponse: HttpResponse, request: HttpRequest): HttpResponse = {
-   logger.info(s"killWebsockets - httpResponse Entity ${httpResponse.entity.toString}")
-   logger.info(s"killWebsockets - httpResponse Headers ${httpResponse.headers.toString()}")
-   logger.info(s"killWebsockets - httpResponse Status ${httpResponse.status.toString()}")
+   logger.info(s"addKernelSessions - httpResponse Entity ${httpResponse.entity.toString}")
+   logger.info(s"addKernelSessions - httpResponse Headers ${httpResponse.headers.toString()}")
+   logger.info(s"addKernelSessions - httpResponse Status ${httpResponse.status.toString()}")
+   logger.info(s"status = ${httpResponse.status}")
+   logger.info(s"requesturi = ${request.uri.path.toString.contains("/sessions")}")
+   logger.info(s"request.uri.path.toString.contains sessions ${request.uri.path.toString.contains("/sessions")}")
+   logger.info(s"httpResponse.status == StatusCodes.Created && request.uri.path.toString.contains(/sessions) ${httpResponse.status == StatusCodes.Created && request.uri.path.toString.contains("/sessions")}")
 
-   if (httpResponse.status == StatusCodes.Created && request.uri.rawQueryString.contains("/sessions")) {
+   if (httpResponse.status == StatusCodes.Created && request.uri.path.toString.contains("/sessions")) {
      val strArray: List[String] = httpResponse.entity.toString.split("id\": \"").toList
      logger.info(s"addKernelSessions strArray: ${strArray.toString()}")
      if (strArray.size == 3) {
