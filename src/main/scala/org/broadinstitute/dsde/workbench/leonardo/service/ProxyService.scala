@@ -235,8 +235,8 @@ class ProxyService(proxyConfig: ProxyConfig,
        logger.info(s"stripped kernelId: $kernelId")
        val sessionId =
          if (strArray.head.contains("kernel")) {
-           strArray.last.substring(0, 35)
-         } else strArray.tail.head.substring(0, 35)
+           strArray.last.substring(0, 36)
+         } else strArray.tail.head.substring(0, 36)
        logger.info(s"stripped sessionId: $sessionId")
        kernelSessionCache.put(sessionId, kernelId)
      }
