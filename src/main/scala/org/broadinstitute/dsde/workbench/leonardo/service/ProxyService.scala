@@ -210,6 +210,7 @@ class ProxyService(proxyConfig: ProxyConfig,
      val kernelId = kernelSessionCache.getIfPresent(sessionId)
      logger.info(s"killWebSockets kernelId $kernelId")
      val killSwitch = killSwitchCache.getIfPresent(kernelId)
+     logger.info(s"killWebSockets killSwitch ${killSwitch.toString()}")
      killSwitch.shutdown()
     }
     httpResponse
@@ -282,7 +283,10 @@ class ProxyService(proxyConfig: ProxyConfig,
       flow
     )
 
+    logger.info(s"handleWebSocketRequest kernelId: ${getKernelId(request.uri.path.toString())}")
+    logger.info(s"handleWebSocketRequest killSwitch: ${killSwitch.toString()}")
     killSwitchCache.put(getKernelId(request.uri.path.toString()), killSwitch)
+
 
     // If we got a valid WebSocketUpgradeResponse, call handleMessages with our publisher/subscriber, which are
     // already materialized from the HttpRequest.
