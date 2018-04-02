@@ -218,17 +218,19 @@ class ProxyService(proxyConfig: ProxyConfig,
     // If we got a valid WebSocketUpgradeResponse, call handleMessages with our publisher/subscriber, which are
     // already materialized from the HttpRequest.
     // If we got an invalid WebSocketUpgradeResponse, simply return it without proxying any additional messages.
-    responseFuture.map {
+    responseFuture.flatMap {
       case ValidUpgrade(response, chosenSubprotocol) =>
-        val webSocketResponse = upgrade.handleMessages(
-          Flow.fromSinkAndSource(Sink.fromSubscriber(subscriber), Source.fromPublisher(publisher)),
-          chosenSubprotocol
-        )
-        webSocketResponse.withHeaders(webSocketResponse.headers ++ filterHeaders(response.headers))
+        response.toStrict(5.seconds).map { strictResponse =>
+          val webSocketResponse = upgrade.handleMessages(
+            Flow.fromSinkAndSource(Sink.fromSubscriber(subscriber), Source.fromPublisher(publisher)),
+            chosenSubprotocol
+          )
+          webSocketResponse.withHeaders(webSocketResponse.headers ++ filterHeaders(strictResponse.headers))
+        }
 
       case InvalidUpgradeResponse(response, cause) =>
         logger.warn("WebSocket upgrade response was invalid: {}", cause)
-        response
+        Future(response)
     }
   }
 
