@@ -1,6 +1,7 @@
 package org.broadinstitute.dsde.workbench.leonardo.auth
 
 import cats.implicits._
+import cats.mtl.implicits._
 import com.typesafe.config.Config
 import net.ceedubs.ficus.Ficus._
 import org.broadinstitute.dsde.workbench.leonardo.model.{LeoAuthProvider, ServiceAccountProvider}

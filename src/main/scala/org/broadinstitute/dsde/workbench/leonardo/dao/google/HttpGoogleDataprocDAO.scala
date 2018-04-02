@@ -80,7 +80,7 @@ class HttpGoogleDataprocDAO(appName: String,
   override def getClusterStatus(googleProject: GoogleProject, clusterName: ClusterName): Future[ClusterStatus] = {
     val transformed = for {
       cluster <- OptionT(getCluster(googleProject, clusterName))
-      status <- OptionT.pure[Future, ClusterStatus](
+      status <- OptionT.pure[Future](
         Try(ClusterStatus.withNameInsensitive(cluster.getStatus.getState)).toOption.getOrElse(ClusterStatus.Unknown))
     } yield status
 
