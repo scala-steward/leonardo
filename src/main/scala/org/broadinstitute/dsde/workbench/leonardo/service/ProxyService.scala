@@ -288,13 +288,14 @@ class ProxyService(proxyConfig: ProxyConfig,
     killSwitchCache.put(getKernelId(request.uri.path.toString()), killSwitch)
 
 
+    val flow2 = Flow.fromSinkAndSource(Sink.fromSubscriber(subscriber), Source.fromPublisher(publisher)).viaMat(KillSwitches.single)(Keep.both)
     // If we got a valid WebSocketUpgradeResponse, call handleMessages with our publisher/subscriber, which are
     // already materialized from the HttpRequest.
     // If we got an invalid WebSocketUpgradeResponse, simply return it without proxying any additional messages.
     responseFuture.map {
       case ValidUpgrade(response, chosenSubprotocol) =>
         val webSocketResponse = upgrade.handleMessages(
-          Flow.fromSinkAndSource(Sink.fromSubscriber(subscriber), Source.fromPublisher(publisher)),
+          flow2,
           chosenSubprotocol
         )
         webSocketResponse.withHeaders(webSocketResponse.headers ++ filterHeaders(response.headers))
