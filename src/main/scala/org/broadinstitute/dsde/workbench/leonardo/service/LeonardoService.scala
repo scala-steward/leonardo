@@ -5,6 +5,7 @@ import java.io.File
 import akka.actor.ActorRef
 import akka.http.scaladsl.model.StatusCodes
 import cats.data.OptionT
+import cats.effect.IO
 import cats.implicits._
 import com.google.api.client.http.HttpResponseException
 import com.typesafe.scalalogging.LazyLogging
@@ -19,6 +20,7 @@ import org.broadinstitute.dsde.workbench.leonardo.model.ProjectActions._
 import org.broadinstitute.dsde.workbench.leonardo.model._
 import org.broadinstitute.dsde.workbench.leonardo.model.google.DataprocRole.Master
 import org.broadinstitute.dsde.workbench.leonardo.model.google._
+import org.broadinstitute.dsde.workbench.leonardo.monitor.ClusterMonitorHelper
 import org.broadinstitute.dsde.workbench.leonardo.monitor.ClusterMonitorSupervisor._
 import org.broadinstitute.dsde.workbench.model.google._
 import org.broadinstitute.dsde.workbench.model.{UserInfo, WorkbenchEmail}
@@ -72,7 +74,8 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
                       protected val authProvider: LeoAuthProvider,
                       protected val serviceAccountProvider: ServiceAccountProvider,
                       protected val whitelist: Set[String],
-                      protected val bucketHelper: BucketHelper)
+                      protected val bucketHelper: BucketHelper,
+                      protected val clusterMonitorHelper: ClusterMonitorHelper)
                      (implicit val executionContext: ExecutionContext) extends LazyLogging {
 
   private val bucketPathMaxLength = 1024
@@ -153,22 +156,22 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
           (cluster, initBucket, serviceAccountKeyOpt) <- createGoogleCluster(userEmail, serviceAccountInfo, googleProject, clusterName, augmentedClusterRequest)
           // Save the cluster in the database
           savedCluster <- dbRef.inTransaction(_.clusterQuery.save(cluster, GcsPath(initBucket, GcsObjectName("")), serviceAccountKeyOpt.map(_.id)))
-        } yield {
-          // Notify the cluster monitor that the cluster has been created
-          clusterMonitorSupervisor ! ClusterCreated(savedCluster)
-          savedCluster
-        }
+        } yield savedCluster
 
-        // If cluster creation failed, createGoogleCluster removes resources in Google.
-        // We also need to notify our auth provider that the cluster has been deleted.
-        clusterFuture.andThen { case Failure(e) =>
-          // Don't wait for this future
-          authProvider.notifyClusterDeleted(userEmail, userEmail, googleProject, clusterName)
+        clusterFuture.onComplete {
+          case Success(cluster) =>
+            clusterMonitorHelper.monitorCreationWithRetry(cluster, IO.fromFuture(IO(internalCreateCluster(userEmail, serviceAccountInfo, googleProject, clusterName, clusterRequest)))).unsafeToFuture()
+
+          case Failure(e) =>
+            // If cluster creation failed, createGoogleCluster removes resources in Google.
+            // We also need to notify our auth provider that the cluster has been deleted.
+            authProvider.notifyClusterDeleted(userEmail, userEmail, googleProject, clusterName)
         }
 
         clusterFuture
     }
   }
+
 
   //throws 404 if nonexistent or no permissions
   def getActiveClusterDetails(userInfo: UserInfo, googleProject: GoogleProject, clusterName: ClusterName): Future[Cluster] = {
@@ -193,13 +196,13 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
       _ <- checkClusterPermission(userInfo,  DeleteCluster, cluster, throw401 = true)
 
       _ <- internalDeleteCluster(userInfo.userEmail, cluster)
-    } yield { () }
+    } yield ()
   }
 
   //NOTE: This function MUST ALWAYS complete ALL steps. i.e. if deleting thing1 fails, it must still proceed to delete thing2
   def internalDeleteCluster(userEmail: WorkbenchEmail, cluster: Cluster): Future[Unit] = {
     if (cluster.status.isDeletable) {
-      for {
+      val deleteFuture = for {
         // Delete the notebook service account key in Google, if present
         _ <- removeServiceAccountKey(cluster.googleProject, cluster.clusterName, cluster.serviceAccountInfo.notebookServiceAccount).recover { case NonFatal(e) =>
           logger.error(s"Error occurred removing service account key for ${cluster.googleProject} / ${cluster.clusterName}", e)
@@ -209,11 +212,14 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
         // Change the cluster status to Deleting in the database
         // Note this also changes the instance status to Deleting
         _ <- dbRef.inTransaction(dataAccess => dataAccess.clusterQuery.markPendingDeletion(cluster.googleId))
-      } yield {
-        // Notify the cluster monitor supervisor of cluster deletion.
-        // This will kick off polling until the cluster is actually deleted in Google.
-        clusterMonitorSupervisor ! ClusterDeleted(cluster.copy(status = ClusterStatus.Deleting))
+      } yield ()
+
+      deleteFuture.foreach { _ =>
+        clusterMonitorHelper.monitorDeletion(cluster).unsafeToFuture()
       }
+
+      deleteFuture
+
     } else Future.successful(())
   }
 
@@ -231,7 +237,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
 
   def internalStopCluster(userEmail: WorkbenchEmail, cluster: Cluster): Future[Unit] = {
     if (cluster.status.isStoppable) {
-      for {
+      val stopFuture = for {
         _ <- Future.traverse(cluster.instances) { instance =>
           // Install a startup script on the master node so Jupyter starts back up again once the instance is restarted
           instance.dataprocRole match {
@@ -244,9 +250,13 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
         }
 
         _ <- dbRef.inTransaction { _.clusterQuery.updateClusterStatus(cluster.googleId, ClusterStatus.Stopping) }
-      } yield {
-        clusterMonitorSupervisor ! ClusterStopped(cluster.copy(status = ClusterStatus.Stopping))
+      } yield ()
+
+      stopFuture.foreach { _ =>
+        clusterMonitorHelper.monitorStop(cluster).unsafeToFuture()
       }
+
+      stopFuture
 
     } else Future.successful(())
   }
@@ -265,13 +275,17 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
 
   def internalStartCluster(userEmail: WorkbenchEmail, cluster: Cluster): Future[Unit] = {
     if (cluster.status.isStartable) {
-      for {
+      val startFuture = for {
         _ <- Future.traverse(cluster.instances) { instance => googleComputeDAO.startInstance(instance.key) }
 
         _ <- dbRef.inTransaction { _.clusterQuery.updateClusterStatus(cluster.googleId, ClusterStatus.Starting) }
-      } yield {
-        clusterMonitorSupervisor ! ClusterStarted(cluster.copy(status = ClusterStatus.Starting))
+      } yield ()
+
+      startFuture.foreach { _ =>
+        clusterMonitorHelper.monitorStart(cluster).unsafeToFuture
       }
+
+      startFuture
 
     } else Future.successful(())
   }
@@ -340,36 +354,8 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
     // If anything fails, we need to clean up Google resources that might have been created
     googleFuture.andThen { case Failure(t) =>
       // Don't wait for this future
-      cleanUpGoogleResourcesOnError(t, googleProject, clusterName, initBucketName, serviceAccountInfo)
+      clusterMonitorHelper.handleClusterCreationError(t, googleProject, clusterName, initBucketName, serviceAccountInfo)
     }
-  }
-
-  private[service] def cleanUpGoogleResourcesOnError(throwable: Throwable, googleProject: GoogleProject, clusterName: ClusterName, initBucketName: GcsBucketName, serviceAccountInfo: ServiceAccountInfo): Future[Unit] = {
-    logger.error(s"Cluster creation failed in Google for ${googleProject.value} / ${clusterName.value}. Cleaning up resources in Google...")
-
-    // Clean up resources in Google
-
-    val deleteInitBucketFuture = leoGoogleStorageDAO.deleteBucket(initBucketName, recurse = true) map { _ =>
-      logger.info(s"Successfully deleted init bucket ${initBucketName.value} for  ${googleProject.value} / ${clusterName.value}")
-    } recover { case e =>
-      logger.error(s"Failed to delete init bucket ${initBucketName.value} for  ${googleProject.value} / ${clusterName.value}", e)
-    }
-
-    // Don't delete the staging bucket so the user can see error logs.
-
-    val deleteClusterFuture = gdDAO.deleteCluster(googleProject, clusterName) map { _ =>
-      logger.info(s"Successfully deleted cluster ${googleProject.value} / ${clusterName.value}")
-    } recover { case e =>
-      logger.error(s"Failed to delete cluster ${googleProject.value} / ${clusterName.value}", e)
-    }
-
-    val deleteServiceAccountKeyFuture =  removeServiceAccountKey(googleProject, clusterName, serviceAccountInfo.notebookServiceAccount) map { _ =>
-      logger.info(s"Successfully deleted service account key for ${serviceAccountInfo.notebookServiceAccount}")
-    } recover { case e =>
-      logger.error(s"Failed to delete service account key for ${serviceAccountInfo.notebookServiceAccount}", e)
-    }
-
-    Future.sequence(Seq(deleteInitBucketFuture, deleteClusterFuture, deleteServiceAccountKeyFuture)).void
   }
 
   private[service] def generateServiceAccountKey(googleProject: GoogleProject, serviceAccountOpt: Option[WorkbenchEmail]): Future[Option[ServiceAccountKey]] = {

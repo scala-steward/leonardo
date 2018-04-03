@@ -11,18 +11,21 @@ import cats.effect._
 import cats.instances.SetInstances
 import com.typesafe.scalalogging.LazyLogging
 import fs2._
+import fs2.async.mutable.Queue
 import io.grpc.Status.Code
 import org.broadinstitute.dsde.workbench.google.{GoogleIamDAO, GoogleStorageDAO}
 import org.broadinstitute.dsde.workbench.leonardo.config.{DataprocConfig, MonitorConfig}
 import org.broadinstitute.dsde.workbench.leonardo.dao.google.{GoogleComputeDAO, GoogleDataprocDAO}
 import org.broadinstitute.dsde.workbench.leonardo.db.DbReference
 import org.broadinstitute.dsde.workbench.leonardo.dns.ClusterDnsCache.{ClusterReady, GetClusterResponse, ProcessReadyCluster}
-import org.broadinstitute.dsde.workbench.leonardo.model.{Cluster, ClusterError, LeoAuthProvider, LeoException}
+import org.broadinstitute.dsde.workbench.leonardo.model._
 import org.broadinstitute.dsde.workbench.leonardo.model.google.ClusterStatus.{Deleted, Deleting}
 import org.broadinstitute.dsde.workbench.leonardo.model.google._
 import org.broadinstitute.dsde.workbench.leonardo.monitor.ClusterMonitorActor.{ClusterMonitorMessage, ShutdownActor}
 import org.broadinstitute.dsde.workbench.leonardo.monitor.ClusterMonitorSupervisor.ClusterDeleted
 import org.broadinstitute.dsde.workbench.leonardo.service.ClusterNotReadyException
+import org.broadinstitute.dsde.workbench.model.WorkbenchEmail
+import org.broadinstitute.dsde.workbench.model.google.{GcsBucketName, GoogleProject}
 import slick.dbio.DBIOAction
 
 import scala.collection.immutable.Set
@@ -36,58 +39,99 @@ class ClusterMonitorHelper(dbRef: DbReference, gdDAO: GoogleDataprocDAO, googleC
 
   case class GoogleState(clusterStatus: ClusterStatus, instances: Set[Instance], masterIp: Option[IP], errorDetails: Option[ClusterErrorDetails])
 
-  def monitorCreation(cluster: Cluster): IO[Boolean] = {
+  def monitorCreation(cluster: Cluster): Stream[IO, Boolean] = {
+
     val beginLog = Stream.eval_[IO, Unit] { IO(logger.info(s"Monitoring cluster ${cluster.projectNameString} for initialization")) }
 
     val pollResult = clusterStatusAndInstances(cluster)
       .evalMap { g => persistInstances(cluster, g.instances).asIO.map(_ => g) }
-      .evalMap { g =>
-        if (g.clusterStatus == ClusterStatus.Error) {
-          gdDAO.getClusterErrorDetails(cluster.operationName).asIO.map(errorDetails => g.copy(errorDetails = errorDetails))
-        } else IO(g)
-      }
-      .evalMap { g =>
-        if (g.clusterStatus == ClusterStatus.Running) {
-          getMasterIp(cluster).asIO.map(ip => g.copy(masterIp = ip))
-        } else IO(g)
-      }
-
-      .takeThrough { g =>
-        g.clusterStatus != ClusterStatus.Running || g.clusterStatus != ClusterStatus.Error ||
-          (g.clusterStatus == ClusterStatus.Running && g.masterIp.isEmpty) ||
-          (g.clusterStatus == ClusterStatus.Error && g.errorDetails.isEmpty)
-      }
-
-      .lastOr(sys.error("[fs2] impossible: empty stream in retry"))
+      .evalMap { g => getErrorDetails(cluster, g) }
+      .map { getMasterIp }
+      .takeThrough { g => clusterIsRunning(g) || clusterIsError(g) }
+      .last
 
     (beginLog ++ pollResult).flatMap {
-      case GoogleState(ClusterStatus.Running, instances, Some(ip), _) =>
-        Stream.eval(handleReadyCluster(cluster, ip, instances).asIO.map(_ => false))
+      case Some(g: GoogleState) if clusterIsRunning(g) =>
+        Stream.eval(handleReadyCluster(cluster, g.masterIp.get, g.instances).asIO.map(_ => false))
 
-      case GoogleState(ClusterStatus.Error, instances, _, Some(errorDetails)) =>
-        Stream.eval(handleFailedCluster(cluster, errorDetails, instances).asIO)
+      case Some(g: GoogleState) if clusterIsError(g) =>
+        Stream.eval(handleFailedCluster(cluster, g.errorDetails.get, g.instances).asIO)
 
       case s =>
-        Stream.eval(IO.raiseError(new Exception(s"stopping monitoring on cluster ${cluster.projectNameString} with state $s")))
+        Stream.eval(IO.raiseError(new Exception(s"Stopping monitoring on cluster ${cluster.projectNameString} with state $s")))
 
-    }.compile.toList.map(_.last)
+    }
+  }
+
+  def monitorStart(cluster: Cluster): IO[Unit] = {
+    monitorCreation(cluster).compile.drain
+  }
+
+  def monitorCreationWithRetry(createdCluster: Cluster, retryCluster: IO[Cluster]): IO[Unit] = {
+    val clusters = (Stream.emit(createdCluster) ++ Stream.eval(retryCluster).repeat)
+
+    clusters
+      .flatMap { c => monitorCreation(c) }
+      .take(10)
+      .takeWhile(_ == true)
+      .last
+      .evalMap {
+        case Some(false) => IO(())
+        case _ => IO.raiseError(new Exception(s"Stopping retrying cluster creation for cluster ${createdCluster.projectNameString} after 10 retries"))
+      }
+      .compile.drain
   }
 
   def monitorDeletion(cluster: Cluster): IO[Unit] = {
     val beginLog = Stream.eval_[IO, Unit] { IO(logger.info(s"Monitoring cluster ${cluster.projectNameString} for deletion")) }
 
     val pollResult = clusterStatusAndInstances(cluster)
-      .takeThrough { g => g.clusterStatus != ClusterStatus.Deleted }
-      .lastOr(sys.error("[fs2] impossible: empty stream in retry"))
+      .takeThrough { clusterIsDeleted }
+      .last
 
     (beginLog ++ pollResult).flatMap {
-      case GoogleState(ClusterStatus.Deleted, _, _, _) =>
+      case Some(g: GoogleState) if clusterIsDeleted(g) =>
         Stream.eval(handleDeletedCluster(cluster).asIO)
 
       case s =>
         Stream.eval(IO.raiseError(new Exception(s"stopping monitoring on cluster ${cluster.projectNameString} with state $s")))
 
-    }.compile.toList.map(_.last)
+    }.compile.drain
+  }
+
+  def monitorStop(cluster: Cluster): IO[Unit] = {
+    val beginLog = Stream.eval_[IO, Unit] { IO(logger.info(s"Monitor cluster ${cluster.projectNameString} for stop")) }
+
+    val pollResult = clusterStatusAndInstances(cluster)
+      .takeThrough { clusterIsStopped }
+      .last
+
+    (beginLog ++ pollResult).flatMap {
+      case Some(g: GoogleState) if clusterIsStopped(g) =>
+        Stream.eval(handleStoppedCluster(cluster, g.instances).asIO)
+
+      case s =>
+        Stream.eval(IO.raiseError(new Exception(s"stopping monitoring on cluster ${cluster.projectNameString} with state $s")))
+
+    }.compile.drain
+  }
+
+  def clusterIsRunning(googleState: GoogleState): Boolean = {
+    googleState.clusterStatus == ClusterStatus.Running &&
+      googleState.instances.forall(_.status == InstanceStatus.Running) &&
+      googleState.masterIp.isDefined
+  }
+
+  def clusterIsError(googleState: GoogleState): Boolean = {
+    googleState.clusterStatus == ClusterStatus.Error && googleState.errorDetails.isDefined
+  }
+
+  def clusterIsStopped(googleState: GoogleState): Boolean = {
+    googleState.instances.forall(i => i.status == InstanceStatus.Stopped || i.status == InstanceStatus.Terminated)
+  }
+
+  def clusterIsDeleted(googleState: GoogleState): Boolean = {
+    googleState.clusterStatus == ClusterStatus.Deleted
   }
 
   def clusterStatusAndInstances(cluster: Cluster): Stream[IO, GoogleState] = {
@@ -110,7 +154,6 @@ class ClusterMonitorHelper(dbRef: DbReference, gdDAO: GoogleDataprocDAO, googleC
       }
       .take(10)
   }
-
 
   ///////////
 
@@ -197,20 +240,69 @@ class ClusterMonitorHelper(dbRef: DbReference, gdDAO: GoogleDataprocDAO, googleC
     } yield ()
   }
 
+
+  /**
+    * Handles a dataproc cluster which has been stopped.
+    * We update the status to Stopped in the database and shut down this actor.
+    * @return ShutdownActor
+    */
+  private def handleStoppedCluster(cluster: Cluster, instances: Set[Instance]): Future[ClusterMonitorMessage] = {
+    logger.info(s"Cluster ${cluster.projectNameString} has been stopped.")
+
+    for {
+    // create or update instances in the DB
+      _ <- persistInstances(cluster, instances)
+      // this sets the cluster status to stopped and clears the cluster IP
+      _ <- dbRef.inTransaction { _.clusterQuery.setToStopped(cluster.googleId) }
+    } yield ShutdownActor()
+  }
+
+  private[sevice] def handleClusterCreationError(throwable: Throwable, googleProject: GoogleProject, clusterName: ClusterName, initBucketName: GcsBucketName, serviceAccountInfo: ServiceAccountInfo): Future[Unit] = {
+    logger.error(s"Cluster creation failed in Google for ${googleProject.value} / ${clusterName.value}. Cleaning up resources in Google...")
+
+    // Clean up resources in Google
+
+    val deleteInitBucketFuture = deleteInitBucket(initBucketName, googleProject, clusterName) map { _ =>
+      logger.info(s"Successfully deleted init bucket ${initBucketName.value} for  ${googleProject.value} / ${clusterName.value}")
+    } recover { case e =>
+      logger.error(s"Failed to delete init bucket ${initBucketName.value} for  ${googleProject.value} / ${clusterName.value}", e)
+    }
+
+    // Don't delete the staging bucket so the user can see error logs.
+
+    val deleteClusterFuture = gdDAO.deleteCluster(googleProject, clusterName) map { _ =>
+      logger.info(s"Successfully deleted cluster ${googleProject.value} / ${clusterName.value}")
+    } recover { case e =>
+      logger.error(s"Failed to delete cluster ${googleProject.value} / ${clusterName.value}", e)
+    }
+
+    val deleteServiceAccountKeyFuture =  removeServiceAccountKey(googleProject, clusterName, serviceAccountInfo.notebookServiceAccount) map { _ =>
+      logger.info(s"Successfully deleted service account key for ${serviceAccountInfo.notebookServiceAccount}")
+    } recover { case e =>
+      logger.error(s"Failed to delete service account key for ${serviceAccountInfo.notebookServiceAccount}", e)
+    }
+
+    Future.sequence(Seq(deleteInitBucketFuture, deleteClusterFuture, deleteServiceAccountKeyFuture)).void
+  }
+
   private def shouldRecreateCluster(code: Int, message: Option[String]): Boolean = {
     // TODO: potentially add more checks here as we learn which errors are recoverable
     monitorConfig.recreateCluster && (code == Code.UNKNOWN.value)
   }
 
-  private def removeServiceAccountKey(cluster: Cluster): Future[Unit] = {
+  private def removeServiceAccountKey(googleProject: GoogleProject, clusterName: ClusterName, notebookServiceAccount: Option[WorkbenchEmail]): Future[Unit] = {
     // Delete the notebook service account key in Google, if present
     val tea = for {
-      key <- OptionT(dbRef.inTransaction { _.clusterQuery.getServiceAccountKeyId(cluster.googleProject, cluster.clusterName) })
-      serviceAccountEmail <- OptionT.fromOption[Future](cluster.serviceAccountInfo.notebookServiceAccount)
+      key <- OptionT(dbRef.inTransaction { _.clusterQuery.getServiceAccountKeyId(googleProject, clusterName) })
+      serviceAccountEmail <- OptionT.fromOption[Future](notebookServiceAccount)
       _ <- OptionT.liftF(googleIamDAO.removeServiceAccountKey(dataprocConfig.leoGoogleProject, serviceAccountEmail, key))
     } yield ()
 
     tea.value.void
+  }
+
+  private def removeServiceAccountKey(cluster: Cluster): Future[Unit] = {
+    removeServiceAccountKey(cluster.googleProject, cluster.clusterName, cluster.serviceAccountInfo.notebookServiceAccount)
   }
 
   private def deleteInitBucket(cluster: Cluster): Future[Unit] = {
@@ -218,11 +310,19 @@ class ClusterMonitorHelper(dbRef: DbReference, gdDAO: GoogleDataprocDAO, googleC
     dbRef.inTransaction { dataAccess =>
       dataAccess.clusterQuery.getInitBucket(cluster.googleProject, cluster.clusterName)
     } flatMap {
-      case None => Future.successful( logger.warn(s"Could not lookup bucket for cluster ${cluster.projectNameString}: cluster not in db") )
+      case None =>
+        logger.warn(s"Could not lookup bucket for cluster ${cluster.projectNameString}: cluster not in db")
+        Future.successful(())
       case Some(bucketPath) =>
-        googleStorageDAO.deleteBucket(bucketPath.bucketName, recurse = true) map { _ =>
-          logger.debug(s"Deleted init bucket $bucketPath for cluster ${cluster.googleProject}/${cluster.clusterName}")
-        }
+        deleteInitBucket(bucketPath.bucketName, cluster.googleProject, cluster.clusterName)
+    }
+  }
+
+  private def deleteInitBucket(initBucketName: GcsBucketName, googleProject: GoogleProject, clusterName: ClusterName): Future[Unit] = {
+    googleStorageDAO.deleteBucket(initBucketName, recurse = true) map { _ =>
+      logger.info(s"Successfully deleted init bucket ${initBucketName.value} for  ${googleProject.value} / ${clusterName.value}")
+    } recover { case e =>
+      logger.error(s"Failed to delete init bucket ${initBucketName.value} for  ${googleProject.value} / ${clusterName.value}", e)
     }
   }
 
@@ -273,18 +373,27 @@ class ClusterMonitorHelper(dbRef: DbReference, gdDAO: GoogleDataprocDAO, googleC
     }
   }
 
-  private def getMasterIp(cluster: Cluster): Future[Option[IP]] = {
-    val transformed = for {
-      masterKey <- OptionT(gdDAO.getClusterMasterInstance(cluster.googleProject, cluster.clusterName))
-      masterInstance <- OptionT(googleComputeDAO.getInstance(masterKey))
-      masterIp <- OptionT.fromOption[Future](masterInstance.ip)
-    } yield masterIp
+//  private def getMasterIp(cluster: Cluster): Future[Option[IP]] = {
+//    val transformed = for {
+//      masterKey <- OptionT(gdDAO.getClusterMasterInstance(cluster.googleProject, cluster.clusterName))
+//      masterInstance <- OptionT(googleComputeDAO.getInstance(masterKey))
+//      masterIp <- OptionT.fromOption[Future](masterInstance.ip)
+//    } yield masterIp
+//
+//    transformed.value
+//  }
 
-    transformed.value
+  private def getErrorDetails(cluster: Cluster, googleState: GoogleState): IO[GoogleState] = {
+    if (googleState.clusterStatus == ClusterStatus.Error) {
+      gdDAO.getClusterErrorDetails(cluster.operationName).asIO.map(errorDetails => googleState.copy(errorDetails = errorDetails))
+    } else IO(googleState)
   }
 
-  private def getMasterIp(instances: Set[Instance]): Option[IP] = {
-    instances.find(_.dataprocRole == Some(DataprocRole.Master)).flatMap(_.ip)
+  private def getMasterIp(googleState: GoogleState): GoogleState = {
+    if (googleState.clusterStatus == ClusterStatus.Running) {
+      val ip = googleState.instances.find(i => i.dataprocRole == Some(DataprocRole.Master) && i.status == InstanceStatus.Running).flatMap(_.ip)
+      googleState.copy(masterIp = ip)
+    } else googleState
   }
 
   private def getClusterInstances(cluster: Cluster): Future[Set[Instance]] = {
@@ -305,7 +414,7 @@ class ClusterMonitorHelper(dbRef: DbReference, gdDAO: GoogleDataprocDAO, googleC
     }.void
   }
 
-  def scheduler = Scheduler[IO](corePoolSize = 5)
+  private def scheduler = Scheduler[IO](corePoolSize = 5)
 
   private implicit class FutureToIO[A](f: Future[A]) {
     def asIO: IO[A] = IO.fromFuture(IO(f))

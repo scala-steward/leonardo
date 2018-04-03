@@ -42,6 +42,8 @@ class BucketHelper(dataprocConfig: DataprocConfig,
     } yield bucketName
   }
 
+  def deleteInitBucket()
+
   /**
     * Creates the dataproc staging bucket and sets the necessary ACLs.
     */
