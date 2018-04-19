@@ -30,7 +30,7 @@ class SamAuthProvider(val config: Config, serviceAccountProvider: ServiceAccount
 
   // This causes Leo to try Sam calls up to 3 times, sleeping 100 milliseconds between each try
   private val samRetryInterval = 100 milliseconds
-  private val samRetryTimeout = 200 milliseconds
+  private val samRetryTimeout = 300 milliseconds
 
   private lazy val notebookAuthCacheMaxSize = config.getAs[Int]("notebookAuthCacheMaxSize").getOrElse(1000)
   private lazy val notebookAuthCacheExpiryTime = config.getAs[FiniteDuration]("notebookAuthCacheExpiryTime").getOrElse(15 minutes)
@@ -145,7 +145,7 @@ class SamAuthProvider(val config: Config, serviceAccountProvider: ServiceAccount
     * @return A Future that will complete when the auth provider has finished doing its business.
     */
   override def notifyClusterCreated(creatorEmail: WorkbenchEmail, googleProject: GoogleProject, clusterName: ClusterName)(implicit executionContext: ExecutionContext): Future[Unit] = {
-    retryUntilSuccessOrTimeout(shouldInvalidateSamCacheAndRetry, "SamAuthProvider.notifyClusterCreated call failed")(samRetryInterval, samRetryTimeout) { () =>
+    retryUntilSuccessOrTimeout(shouldInvalidateSamCacheAndRetry, s"SamAuthProvider.notifyClusterCreated call failed for ${googleProject.value}/${clusterName.value}")(samRetryInterval, samRetryTimeout) { () =>
       Future {
         blocking(samClient.createNotebookClusterResource(creatorEmail, googleProject, clusterName))
       }.recover {
@@ -170,10 +170,12 @@ class SamAuthProvider(val config: Config, serviceAccountProvider: ServiceAccount
     * @return A Future that will complete when the auth provider has finished doing its business.
     */
   override def notifyClusterDeleted(userEmail: WorkbenchEmail, creatorEmail: WorkbenchEmail, googleProject: GoogleProject, clusterName: ClusterName)(implicit executionContext: ExecutionContext): Future[Unit] = {
-    retryUntilSuccessOrTimeout(shouldInvalidateSamCacheAndRetry, "SamAuthProvider.notifyClusterDeleted call failed")(samRetryInterval, samRetryTimeout) { () =>
+    retryUntilSuccessOrTimeout(shouldInvalidateSamCacheAndRetry, s"SamAuthProvider.notifyClusterDeleted call failed for ${googleProject.value}/${clusterName.value}")(samRetryInterval, samRetryTimeout) { () =>
       Future {
         blocking(samClient.deleteNotebookClusterResource(creatorEmail, googleProject, clusterName))
       }.recover {
+        // treat 404s from Sam as the cluster already being deleted
+        case e: ApiException if e.getCode == StatusCodes.NotFound.intValue => ()
         case e if shouldInvalidateSamCacheAndRetry(e) =>
           // invalidate the pet token cache between retries in case it contains stale entries
           // See https://github.com/DataBiosphere/leonardo/issues/290
