@@ -199,7 +199,7 @@ trait LeonardoTestUtils extends WebBrowserSpec with Matchers with Eventually wit
     val caught = the [RestException] thrownBy {
       Leonardo.notebooks.getApi(googleProject, clusterName)
     }
-    caught.message shouldBe s"""{"statusCode":422,"source":"leonardo","causes":[],"exceptionClass":"org.broadinstitute.dsde.workbench.leonardo.service.ClusterPausedException","stackTrace":[],"message":"Cluster ${googleProject.value}/${clusterName.string} is stopped. Start your cluster before proceeding."}"""
+    caught.message shouldBe s"""{"statusCode":422,"source":"leonardo","causes":[],"exceptionClass":"org.broadinstitute.dsde.workbench.leonardo.service.ClusterPausedException","stackTrace":[],"message":"Cluster ${googleProject.value}/${clusterName.value} is stopped. Start your cluster before proceeding."}"""
   }
 
   def startAndMonitor(googleProject: GoogleProject, clusterName: ClusterName)(implicit webDriver: WebDriver, token: AuthToken): Unit = {
@@ -423,9 +423,9 @@ trait LeonardoTestUtils extends WebBrowserSpec with Matchers with Eventually wit
           // Verify and save the localization.log file to test output to aid in debugging
           Try(verifyAndSaveLocalizationLog(cluster)) match {
             case Success(downloadFile) =>
-              logger.info(s"Saved localization log for cluster ${cluster.googleProject.value}/${cluster.clusterName.string} to ${downloadFile.getAbsolutePath}")
+              logger.info(s"Saved localization log for cluster ${cluster.googleProject.value}/${cluster.clusterName.value} to ${downloadFile.getAbsolutePath}")
             case Failure(e) =>
-              logger.warn(s"Could not obtain localization log files for cluster ${cluster.googleProject}/${cluster.clusterName}: ${e.getMessage}")
+              logger.warn(s"Could not obtain localization log files for cluster ${cluster.googleProject.value}/${cluster.clusterName.value}: ${e.getMessage}")
           }
 
           // clean up files on the cluster
@@ -463,7 +463,7 @@ trait LeonardoTestUtils extends WebBrowserSpec with Matchers with Eventually wit
     localizationLog.content shouldBe defined
 
     // Save localization.log to test output to aid in debugging
-    val downloadFile = new File(logDir, s"${cluster.googleProject.value}-${cluster.clusterName.string}-localization.log")
+    val downloadFile = new File(logDir, s"${cluster.googleProject.value}-${cluster.clusterName.value}-localization.log")
     val fos = new FileOutputStream(downloadFile)
     fos.write(localizationLog.content.get.getBytes)
     fos.close()
@@ -537,7 +537,7 @@ trait LeonardoTestUtils extends WebBrowserSpec with Matchers with Eventually wit
   def saveDataprocLogFiles(cluster: Cluster)(implicit executionContext: ExecutionContext): Future[Option[(File, File)]] = {
     def downloadLogFile(contentStream: ByteArrayOutputStream, fileName: String): File = {
       // .log suffix is needed so it shows up as a Jenkins build artifact
-      val downloadFile = new File(logDir, s"${cluster.googleProject.value}-${cluster.clusterName.string}-${fileName}.log")
+      val downloadFile = new File(logDir, s"${cluster.googleProject.value}-${cluster.clusterName.value}-${fileName}.log")
       val fos = new FileOutputStream(downloadFile)
       fos.write(contentStream.toByteArray)
       fos.close()
