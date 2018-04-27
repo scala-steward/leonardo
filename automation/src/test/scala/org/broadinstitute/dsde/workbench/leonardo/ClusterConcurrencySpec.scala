@@ -66,93 +66,93 @@ class ClusterConcurrencySpec extends FreeSpec with LeonardoTestUtils with Parall
     }
 
     // create -> wait -> delete -> no wait -> create (conflict)
-    "should not be able to recreate a deleting cluster" in withWebDriver { implicit driver =>
-      withCleanBillingProject(hermioneCreds) { projectName =>
-        Orchestration.billing.addUserToBillingProject(projectName, ronEmail, Orchestration.billing.BillingProjectRole.User)(hermioneAuthToken)
-        val project = GoogleProject(projectName)
-        implicit val token = ronAuthToken
-
-        val cluster = withNewCluster(project, monitorCreate = true, monitorDelete = false)(identity)
-
-        val caught = the[RestException] thrownBy createNewCluster(project, cluster.clusterName)
-        caught.message should include(""""statusCode":409""")
-
-        monitorDelete(project, cluster.clusterName)
-      }
-    }
-
-    // create -> wait -> delete -> no wait -> delete
-    "should not be able to delete a deleting cluster" in withWebDriver { implicit driver =>
-      withCleanBillingProject(hermioneCreds) { projectName =>
-        Orchestration.billing.addUserToBillingProject(projectName, ronEmail, Orchestration.billing.BillingProjectRole.User)(hermioneAuthToken)
-        val project = GoogleProject(projectName)
-        implicit val token = ronAuthToken
-
-        val cluster = withNewCluster(project, monitorCreate = true, monitorDelete = false)(identity)
-
-        // second delete should succeed
-        deleteAndMonitor(project, cluster.clusterName)
-      }
-    }
-
-    // create -> no wait -> stop (conflict) -> delete
-    "should not be able to stop a creating cluster" in withWebDriver { implicit driver =>
-      withCleanBillingProject(hermioneCreds) { projectName =>
-        Orchestration.billing.addUserToBillingProject(projectName, ronEmail, Orchestration.billing.BillingProjectRole.User)(hermioneAuthToken)
-        val project = GoogleProject(projectName)
-        implicit val token = ronAuthToken
-
-        withNewCluster(project, monitorCreate = false, monitorDelete = true) { cluster =>
-          val caught = the[RestException] thrownBy stopCluster(project, cluster.clusterName, monitor = false)
-          caught.message should include(""""statusCode":409""")
-        }
-      }
-    }
-
-    // create -> wait -> stop -> no wait -> start -> delete
-    "should be able to start a stopping cluster" in withWebDriver { implicit driver =>
-      withCleanBillingProject(hermioneCreds) { projectName =>
-        Orchestration.billing.addUserToBillingProject(projectName, ronEmail, Orchestration.billing.BillingProjectRole.User)(hermioneAuthToken)
-        val project = GoogleProject(projectName)
-        implicit val token = ronAuthToken
-
-        withNewCluster(project) { cluster =>
-          // start without waiting for stop to complete
-          stopCluster(project, cluster.clusterName, monitor = false)
-          // TODO: cluster is not _immediately_ startable after stopping. Why?
-          logger.info("Sleeping 10 seconds before starting")
-          Thread.sleep(10000)
-          startAndMonitor(project, cluster.clusterName)
-        }
-      }
-    }
-
-    // create -> wait -> stop -> wait -> delete
-    "should be able to delete a stopped cluster" in withWebDriver { implicit driver =>
-      withCleanBillingProject(hermioneCreds) { projectName =>
-        Orchestration.billing.addUserToBillingProject(projectName, ronEmail, Orchestration.billing.BillingProjectRole.User)(hermioneAuthToken)
-        val project = GoogleProject(projectName)
-        implicit val token = ronAuthToken
-
-        withNewCluster(project) { cluster =>
-          // delete after stop is complete
-          stopAndMonitor(cluster.googleProject, cluster.clusterName)
-        }
-      }
-    }
-
-    // create -> wait -> stop -> no wait -> delete
-    "should be able to delete a stopping cluster" in withWebDriver { implicit driver =>
-      withCleanBillingProject(hermioneCreds) { projectName =>
-        Orchestration.billing.addUserToBillingProject(projectName, ronEmail, Orchestration.billing.BillingProjectRole.User)(hermioneAuthToken)
-        val project = GoogleProject(projectName)
-        implicit val token = ronAuthToken
-
-        withNewCluster(project) { cluster =>
-          // delete without waiting for the stop to complete
-          stopCluster(cluster.googleProject, cluster.clusterName, monitor = false)
-        }
-      }
-    }
+//    "should not be able to recreate a deleting cluster" in withWebDriver { implicit driver =>
+//      withCleanBillingProject(hermioneCreds) { projectName =>
+//        Orchestration.billing.addUserToBillingProject(projectName, ronEmail, Orchestration.billing.BillingProjectRole.User)(hermioneAuthToken)
+//        val project = GoogleProject(projectName)
+//        implicit val token = ronAuthToken
+//
+//        val cluster = withNewCluster(project, monitorCreate = true, monitorDelete = false)(identity)
+//
+//        val caught = the[RestException] thrownBy createNewCluster(project, cluster.clusterName)
+//        caught.message should include(""""statusCode":409""")
+//
+//        monitorDelete(project, cluster.clusterName)
+//      }
+//    }
+//
+//    // create -> wait -> delete -> no wait -> delete
+//    "should not be able to delete a deleting cluster" in withWebDriver { implicit driver =>
+//      withCleanBillingProject(hermioneCreds) { projectName =>
+//        Orchestration.billing.addUserToBillingProject(projectName, ronEmail, Orchestration.billing.BillingProjectRole.User)(hermioneAuthToken)
+//        val project = GoogleProject(projectName)
+//        implicit val token = ronAuthToken
+//
+//        val cluster = withNewCluster(project, monitorCreate = true, monitorDelete = false)(identity)
+//
+//        // second delete should succeed
+//        deleteAndMonitor(project, cluster.clusterName)
+//      }
+//    }
+//
+//    // create -> no wait -> stop (conflict) -> delete
+//    "should not be able to stop a creating cluster" in withWebDriver { implicit driver =>
+//      withCleanBillingProject(hermioneCreds) { projectName =>
+//        Orchestration.billing.addUserToBillingProject(projectName, ronEmail, Orchestration.billing.BillingProjectRole.User)(hermioneAuthToken)
+//        val project = GoogleProject(projectName)
+//        implicit val token = ronAuthToken
+//
+//        withNewCluster(project, monitorCreate = false, monitorDelete = true) { cluster =>
+//          val caught = the[RestException] thrownBy stopCluster(project, cluster.clusterName, monitor = false)
+//          caught.message should include(""""statusCode":409""")
+//        }
+//      }
+//    }
+//
+//    // create -> wait -> stop -> no wait -> start -> delete
+//    "should be able to start a stopping cluster" in withWebDriver { implicit driver =>
+//      withCleanBillingProject(hermioneCreds) { projectName =>
+//        Orchestration.billing.addUserToBillingProject(projectName, ronEmail, Orchestration.billing.BillingProjectRole.User)(hermioneAuthToken)
+//        val project = GoogleProject(projectName)
+//        implicit val token = ronAuthToken
+//
+//        withNewCluster(project) { cluster =>
+//          // start without waiting for stop to complete
+//          stopCluster(project, cluster.clusterName, monitor = false)
+//          // TODO: cluster is not _immediately_ startable after stopping. Why?
+//          logger.info("Sleeping 10 seconds before starting")
+//          Thread.sleep(10000)
+//          startAndMonitor(project, cluster.clusterName)
+//        }
+//      }
+//    }
+//
+//    // create -> wait -> stop -> wait -> delete
+//    "should be able to delete a stopped cluster" in withWebDriver { implicit driver =>
+//      withCleanBillingProject(hermioneCreds) { projectName =>
+//        Orchestration.billing.addUserToBillingProject(projectName, ronEmail, Orchestration.billing.BillingProjectRole.User)(hermioneAuthToken)
+//        val project = GoogleProject(projectName)
+//        implicit val token = ronAuthToken
+//
+//        withNewCluster(project) { cluster =>
+//          // delete after stop is complete
+//          stopAndMonitor(cluster.googleProject, cluster.clusterName)
+//        }
+//      }
+//    }
+//
+//    // create -> wait -> stop -> no wait -> delete
+//    "should be able to delete a stopping cluster" in withWebDriver { implicit driver =>
+//      withCleanBillingProject(hermioneCreds) { projectName =>
+//        Orchestration.billing.addUserToBillingProject(projectName, ronEmail, Orchestration.billing.BillingProjectRole.User)(hermioneAuthToken)
+//        val project = GoogleProject(projectName)
+//        implicit val token = ronAuthToken
+//
+//        withNewCluster(project) { cluster =>
+//          // delete without waiting for the stop to complete
+//          stopCluster(cluster.googleProject, cluster.clusterName, monitor = false)
+//        }
+//      }
+//    }
   }
 }
