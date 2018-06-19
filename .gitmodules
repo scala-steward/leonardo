@@ -1,3 +1,0 @@
-[submodule "automation/firecloud-automated-testing"]
-	path = automation/firecloud-automated-testing
-	url = git@github.com:broadinstitute/firecloud-automated-testing
