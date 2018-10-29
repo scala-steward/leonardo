@@ -234,7 +234,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends apt-utils \
     libcurl4-openssl-dev \
     libssl1.1=1.1.0f-3+deb9u2 \
     libssl-dev=1.1.0f-3+deb9u2 \
-    libxml2-dev \
+#    libxml2-dev=2.9.3+dfsg1-1 \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
