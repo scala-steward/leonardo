@@ -78,9 +78,11 @@ if [[ "${ROLE}" == 'Master' ]]; then
     export OWNER_EMAIL=$(userEmailLoginHint)
     export JUPYTER_SERVER_NAME=$(jupyterServerName)
     export RSTUDIO_SERVER_NAME=$(rstudioServerName)
+    export GALAXY_SERVER_NAME=$(galaxyServerName)
     export PROXY_SERVER_NAME=$(proxyServerName)
     export JUPYTER_DOCKER_IMAGE=$(jupyterDockerImage)
     export RSTUDIO_DOCKER_IMAGE=$(rstudioDockerImage)
+    export GALAXY_DOCKER_IMAGE=$(galaxyDockerImage)
     export PROXY_DOCKER_IMAGE=$(proxyDockerImage)
 
     JUPYTER_SERVER_CRT=$(jupyterServerCrt)
