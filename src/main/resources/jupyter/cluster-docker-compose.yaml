@@ -58,3 +58,15 @@ services:
       OWNER_EMAIL: "${OWNER_EMAIL}"
     env_file:
       - /etc/google_application_credentials.env
+
+  galaxy:
+    container_name: "${GALAXY_SERVER_NAME}"
+    image: "${GALAXY_DOCKER_IMAGE}"
+    network_mode: host
+    restart: always
+    environment:
+      GOOGLE_PROJECT: "${GOOGLE_PROJECT}"
+      CLUSTER_NAME: "${CLUSTER_NAME}"
+      OWNER_EMAIL: "${OWNER_EMAIL}"
+    env_file:
+      - /etc/google_application_credentials.env
