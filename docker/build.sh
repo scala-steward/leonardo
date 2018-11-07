@@ -185,8 +185,8 @@ function docker_cmd()
         fi
 
         # builds the juptyer notebooks and rstudio docker images that go on dataproc clusters
-        bash ./tools/build.sh -i jupyter -r "${NOTEBOOK_REPO}" -t "${DOCKER_TAG}"
-        bash ./tools/build.sh -i rstudio -r "${NOTEBOOK_REPO}" -t "${DOCKER_TAG}"
+        bash ./docker-tools/build.sh -i jupyter -r "${NOTEBOOK_REPO}" -t "${DOCKER_TAG}"
+        bash ./docker-tools/build.sh -i rstudio -r "${NOTEBOOK_REPO}" -t "${DOCKER_TAG}"
         # Build the UI if specified.
         if $BUILD_UI; then
           bash ./ui/build.sh build "${NOTEBOOK_REPO}" "${DOCKER_TAG}"
