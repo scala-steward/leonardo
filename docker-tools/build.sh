@@ -43,13 +43,12 @@ fi
 while [ "$1" != "" ]; do
     case $1 in
         -p | --push)
-            shift
             echo "will perform a PUSH"
             PUSH=true
             ;;
         -i | --image)
             shift
-            IMAGE="$1"
+            IMAGE=$1
             ;;
         -r | --repository)
             shift
