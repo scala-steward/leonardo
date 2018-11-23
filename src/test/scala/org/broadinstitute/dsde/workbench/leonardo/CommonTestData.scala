@@ -129,7 +129,7 @@ trait CommonTestData{ this: ScalaFutures =>
     autopauseThreshold = if (autopause) autopauseThreshold else 0,
     defaultClientId = None,
     stopAfterCreation = false,
-    clusterImages = Set(jupyterImage)
+    clusterImages = Set(jupyterImage, rstudioImage)
   )
 
   // TODO look into parameterized tests so both provider impls can be tested
