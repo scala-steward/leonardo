@@ -21,8 +21,32 @@ trait ProxyRoutes extends UserInfoDirectives with CorsSupport with CookieHelper 
   val proxyService: ProxyService
   implicit val executionContext: ExecutionContext
 
-  protected val proxyRoutes: Route =
-    pathPrefix("notebooks") {
+  protected val proxyRoutesAll: Route = jupyterRoutes ~ proxyRoutes
+  
+  private val proxyRoutes: Route =
+    pathPrefix("proxy" ) {
+
+      corsHandler {
+
+        pathPrefix(Segment / Segment) { (googleProjectParam, clusterNameParam) =>
+          val googleProject = GoogleProject(googleProjectParam)
+          val clusterName = ClusterName(clusterNameParam)
+
+          (extractRequest & extractUserInfo) { (request, userInfo) =>
+            (logRequestResultForMetrics(userInfo)) {
+              // Proxy logic handled by the ProxyService class
+              // Note ProxyService calls the LeoAuthProvider internally
+              complete {
+                proxyService.proxyNotebook(userInfo, googleProject, clusterName, request)
+              }
+            }
+          }
+        }
+      }
+    }
+
+  private val jupyterRoutes: Route =
+    pathPrefix("notebooks" ) {
 
       corsHandler {
 
