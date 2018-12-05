@@ -13,6 +13,7 @@ case class DataprocConfig(
                            defaultExecutionTimeout: FiniteDuration,
                            jupyterServerName: String,
                            rstudioServerName: String,
+                           galaxyServerName: String,
                            firewallRuleName: String,
                            networkTag: String,
                            defaultScopes: Set[String],

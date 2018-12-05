@@ -76,9 +76,11 @@ if [[ "${ROLE}" == 'Master' ]]; then
     export OWNER_EMAIL=$(userEmailLoginHint)
     export JUPYTER_SERVER_NAME=$(jupyterServerName)
     export RSTUDIO_SERVER_NAME=$(rstudioServerName)
+    export GALAXY_SERVER_NAME=$(galaxyServerName)
     export PROXY_SERVER_NAME=$(proxyServerName)
     export JUPYTER_DOCKER_IMAGE=$(jupyterDockerImage)
     export RSTUDIO_DOCKER_IMAGE=$(rstudioDockerImage)
+    export GALAXY_DOCKER_IMAGE=$(galaxyDockerImage)
     export PROXY_DOCKER_IMAGE=$(proxyDockerImage)
 
     JUPYTER_SERVER_CRT=$(jupyterServerCrt)
@@ -86,6 +88,7 @@ if [[ "${ROLE}" == 'Master' ]]; then
     JUPYTER_ROOT_CA=$(rootCaPem)
     JUPYTER_DOCKER_COMPOSE=$(jupyterDockerCompose)
     RSTUDIO_DOCKER_COMPOSE=$(rstudioDockerCompose)
+    GALAXY_DOCKER_COMPOSE=$(galaxyDockerCompose)
     PROXY_DOCKER_COMPOSE=$(proxyDockerCompose)
     PROXY_SITE_CONF=$(proxySiteConf)
     JUPYTER_SERVER_EXTENSIONS=$(jupyterServerExtensions)
@@ -149,6 +152,7 @@ if [[ "${ROLE}" == 'Master' ]]; then
     gsutil cp ${PROXY_SITE_CONF} /etc
     gsutil cp ${JUPYTER_DOCKER_COMPOSE} /etc
     gsutil cp ${RSTUDIO_DOCKER_COMPOSE} /etc
+    gsutil cp ${GALAXY_DOCKER_COMPOSE} /etc
     gsutil cp ${PROXY_DOCKER_COMPOSE} /etc
 
     # Needed because docker-compose can't handle symlinks
@@ -166,7 +170,7 @@ if [[ "${ROLE}" == 'Master' ]]; then
 
     # If any image is hosted in a GCR registry (detected by regex) then
     # authorize docker to interact with gcr.io.
-    if grep -qF "gcr.io" <<< "${JUPYTER_DOCKER_IMAGE}${RSTUDIO_DOCKER_IMAGE}${PROXY_DOCKER_IMAGE}" ; then
+    if grep -qF "gcr.io" <<< "${JUPYTER_DOCKER_IMAGE}${RSTUDIO_DOCKER_IMAGE}${GALAXY_DOCKER_IMAGE}${PROXY_DOCKER_IMAGE}" ; then
       log 'Authorizing GCR...'
       gcloud docker --authorize-only
     fi
@@ -182,6 +186,9 @@ if [[ "${ROLE}" == 'Master' ]]; then
     fi
     if [ ! -z ${RSTUDIO_DOCKER_IMAGE} ] ; then
       COMPOSE_FILES+=(-f /etc/`basename ${RSTUDIO_DOCKER_COMPOSE}`)
+    fi
+    if [ ! -z ${GALAXY_DOCKER_IMAGE} ] ; then
+      COMPOSE_FILES+=(-f /etc/`basename ${GALAXY_DOCKER_COMPOSE}`)
     fi
     docker-compose "${COMPOSE_FILES[@]}" config
     retry 5 docker-compose "${COMPOSE_FILES[@]}" pull

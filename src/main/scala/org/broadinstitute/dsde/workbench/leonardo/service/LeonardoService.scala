@@ -15,7 +15,7 @@ import org.broadinstitute.dsde.workbench.leonardo.config.{AutoFreezeConfig, Clus
 import org.broadinstitute.dsde.workbench.leonardo.dao.google.{GoogleComputeDAO, GoogleDataprocDAO}
 import org.broadinstitute.dsde.workbench.leonardo.db.{DataAccess, DbReference}
 import org.broadinstitute.dsde.workbench.leonardo.model.Cluster.LabelMap
-import org.broadinstitute.dsde.workbench.leonardo.model.ClusterTool.{Jupyter, RStudio}
+import org.broadinstitute.dsde.workbench.leonardo.model.ClusterTool.{Galaxy, Jupyter, RStudio}
 import org.broadinstitute.dsde.workbench.leonardo.model.LeonardoJsonSupport._
 import org.broadinstitute.dsde.workbench.leonardo.model.NotebookClusterActions._
 import org.broadinstitute.dsde.workbench.leonardo.model.ProjectActions._
@@ -935,19 +935,14 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
   private[service] def processClusterImages(clusterRequest: ClusterRequest): Set[ClusterImage] = {
     val now = Instant.now
 
-    (clusterRequest.jupyterDockerImage, clusterRequest.rstudioDockerImage) match {
-      case (Some(jupyterImage), Some(rstudioImage)) =>
-        Set(ClusterImage(Jupyter, jupyterImage, now), ClusterImage(RStudio, rstudioImage, now))
+    val images = Set(
+      clusterRequest.jupyterDockerImage.map(i => ClusterImage(Jupyter, i, now)),
+      clusterRequest.rstudioDockerImage.map(i => ClusterImage(RStudio, i, now)),
+      clusterRequest.galaxyDockerImage.map(i => ClusterImage(Galaxy, i, now))
+    ).flatten
 
-      case (Some(jupyterImage), None) =>
-        Set(ClusterImage(Jupyter, jupyterImage, now))
-
-      case (None, Some(rstudioImage)) =>
-        Set(ClusterImage(RStudio, rstudioImage, now))
-
-      // Default to the configured default Jupyter image if neither Jupyter nor RStudio specified in the request
-      case (None, None) =>
-        Set(ClusterImage(Jupyter, dataprocConfig.dataprocDockerImage, now))
-    }
+    if (images.isEmpty) {
+      Set(ClusterImage(Jupyter, dataprocConfig.dataprocDockerImage, now))
+    } else images
   }
 }

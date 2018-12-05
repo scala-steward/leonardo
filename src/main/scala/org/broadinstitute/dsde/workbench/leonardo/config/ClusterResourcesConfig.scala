@@ -5,6 +5,7 @@ import org.broadinstitute.dsde.workbench.leonardo.model.ClusterResource
 case class ClusterResourcesConfig(initActionsScript: ClusterResource,
                                   jupyterDockerCompose: ClusterResource,
                                   rstudioDockerCompose: ClusterResource,
+                                  galaxyDockerCompose: ClusterResource,
                                   proxyDockerCompose: ClusterResource,
                                   proxySiteConf: ClusterResource,
                                   jupyterCustomJs: ClusterResource,

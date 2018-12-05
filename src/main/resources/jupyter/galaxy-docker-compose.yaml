@@ -1,0 +1,15 @@
+version: '2'
+services:
+  galaxy:
+    container_name: "${GALAXY_SERVER_NAME}"
+    image: "${GALAXY_DOCKER_IMAGE}"
+    ports:
+    - "9080:80"
+    restart: always
+    environment:
+      GOOGLE_PROJECT: "${GOOGLE_PROJECT}"
+      CLUSTER_NAME: "${CLUSTER_NAME}"
+      OWNER_EMAIL: "${OWNER_EMAIL}"
+      PROXY_PREFIX: "/notebooks/${GOOGLE_PROJECT}/${CLUSTER_NAME}/galaxy"
+    env_file:
+    - /etc/google_application_credentials.env

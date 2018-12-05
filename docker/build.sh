@@ -187,6 +187,7 @@ function docker_cmd()
         # builds the juptyer notebooks and rstudio docker images that go on dataproc clusters
         bash ./docker/build-tool.sh -i jupyter -r "${NOTEBOOK_REPO}" -t "${DOCKER_TAG}"
         bash ./docker/build-tool.sh -i rstudio -r "${NOTEBOOK_REPO}" -t "${DOCKER_TAG}"
+        bash ./docker/build-tool.sh -i galaxy -r "${NOTEBOOK_REPO}" -t "${DOCKER_TAG}"
 
         # Build the UI if specified.
         if $BUILD_UI; then
@@ -223,6 +224,7 @@ function docker_cmd()
             # pushes the juptyer notebooks and rstudio docker images that go on dataproc clusters
             bash ./docker/build-tool.sh --push -i jupyter -r "${NOTEBOOK_REPO}" -t "${DOCKER_TAG}" -b "${GIT_BRANCH}"
             bash ./docker/build-tool.sh --push -i rstudio -r "${NOTEBOOK_REPO}" -t "${DOCKER_TAG}" -b "${GIT_BRANCH}"
+            bash ./docker/build-tool.sh --push -i galaxy -r "${NOTEBOOK_REPO}" -t "${DOCKER_TAG}" -b "${GIT_BRANCH}"
  
             # push the UI docker image.
             if $BUILD_UI; then

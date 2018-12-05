@@ -872,13 +872,18 @@ definitions:
       jupyterDockerImage:
         type: String
         description: The Jupyter docker image to install. May be Dockerhub or GCR. If not set, then a default Jupyter image will be installed.
+      rstudioDockerImage:
+        type: String
+        description: The RStudio docker image to install. May be Dockerhub or GCR. If not set, then RStudio will not be installed.
+      galaxyDockerImage:
+        type: String
+         description: The Galaxy docker image to install. May be Dockerhub or GCR. If not set, then Galaxy will not be installed.
       scopes:
         type: array
         items:
           type: string
         description: The scopes for the cluster. Defaults (userinfo.email, userinfo.profile, bigquery, source.read_only) will be used if left blank.
         default: ["https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/bigquery", "https://www.googleapis.com/auth/source.read_only"]
-
 
   ClusterError:
     description: 'Errors encountered on cluster create'
