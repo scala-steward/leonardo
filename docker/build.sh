@@ -202,7 +202,7 @@ function docker_cmd()
 
         if [ $DOCKER_CMD = "push" ]; then
 
-            if [ -n $DOCKERHUB_REGISTRY ]; then
+            if [ -n "$DOCKERHUB_REGISTRY" ]; then
                 echo "pushing $DOCKERHUB_IMAGE docker image..."
                 $DOCKER_REMOTES_BINARY tag $DEFAULT_IMAGE:${DOCKER_TAG} $DOCKERHUB_IMAGE:${DOCKER_TAG}
                 $DOCKER_REMOTES_BINARY push $DOCKERHUB_IMAGE:${DOCKER_TAG}
@@ -215,7 +215,7 @@ function docker_cmd()
                 $DOCKER_REMOTES_BINARY push $TESTS_IMAGE:${GIT_BRANCH}
             fi
 
-            if [ -n $GCR_REGISTRY ]; then
+            if [ -n "$GCR_REGISTRY" ]; then
                 echo "pushing $GCR_IMAGE docker image..."
                 $DOCKER_REMOTES_BINARY tag $DEFAULT_IMAGE:${DOCKER_TAG} ${GCR_IMAGE}:${DOCKER_TAG}
                 $GCR_REMOTES_BINARY push ${GCR_IMAGE}:${DOCKER_TAG}
