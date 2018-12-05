@@ -592,9 +592,9 @@ def build_jar_and_push(project, branch):
     subprocess.check_call([
         os.path.join(SCRIPT_DIR, '../../docker/build.sh'),
         'jar',
-        '-p', project,
         '-d', 'push',
-        '-r', 'gcr',
+        '-gr', ''.join(['us.gcr.io/', project]),
+        '-n', ''.join(['us.gcr.io/', project])
     ], env=current_env)
 
 
