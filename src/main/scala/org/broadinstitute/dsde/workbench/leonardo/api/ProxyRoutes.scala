@@ -21,7 +21,7 @@ trait ProxyRoutes extends UserInfoDirectives with CorsSupport with CookieHelper 
   val proxyService: ProxyService
   implicit val executionContext: ExecutionContext
 
-  protected val proxyRoutesAll: Route = jupyterRoutes ~ proxyRoutes
+  protected val allProxyRoutes: Route = jupyterRoutes ~ proxyRoutes
 
   private val proxyRoutes: Route =
     pathPrefix("proxy" ) {

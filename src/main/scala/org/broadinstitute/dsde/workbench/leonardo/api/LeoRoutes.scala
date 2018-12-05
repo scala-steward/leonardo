@@ -148,7 +148,7 @@ abstract class LeoRoutes(val leonardoService: LeonardoService, val proxyService:
     }
 
   def route: Route = (logRequestResult & handleExceptions(myExceptionHandler)) {
-    swaggerRoutes ~ unauthedRoutes ~ proxyRoutesAll ~ statusRoutes ~
+    swaggerRoutes ~ unauthedRoutes ~ allProxyRoutes ~ statusRoutes ~
     pathPrefix("api") { leoRoutes }
   }
 
