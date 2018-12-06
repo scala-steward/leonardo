@@ -806,6 +806,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
     val resourcesToUpload = List(
       clusterResourcesConfig.jupyterDockerCompose,
       clusterResourcesConfig.rstudioDockerCompose,
+      clusterResourcesConfig.galaxyDockerCompose,
       clusterResourcesConfig.proxyDockerCompose,
       clusterResourcesConfig.proxySiteConf,
       clusterResourcesConfig.jupyterCustomJs)

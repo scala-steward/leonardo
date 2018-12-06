@@ -877,7 +877,7 @@ definitions:
         description: The RStudio docker image to install. May be Dockerhub or GCR. If not set, then RStudio will not be installed.
       galaxyDockerImage:
         type: String
-         description: The Galaxy docker image to install. May be Dockerhub or GCR. If not set, then Galaxy will not be installed.
+        description: The Galaxy docker image to install. May be Dockerhub or GCR. If not set, then Galaxy will not be installed.
       scopes:
         type: array
         items:

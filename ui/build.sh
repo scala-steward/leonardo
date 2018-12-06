@@ -39,6 +39,7 @@ push() {
     echo "pushing jupyter docker image..."
     $DOCKER_BINARY push "${DOCKER_REPOSITORY}/leonardo-ui:${DOCKER_TAG}"
     $DOCKER_BINARY tag "${DOCKER_REPOSITORY}/leonardo-ui:${DOCKER_TAG}" "${DOCKER_REPOSITORY}/leonardo-ui:${GIT_BRANCH}"
+    $DOCKER_BINARY push "${DOCKER_REPOSITORY}/leonardo-ui:${GIT_BRANCH}"
 }
 
 echo "${JUPYTER_COMMAND}ing the jupyter docker image"

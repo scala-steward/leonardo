@@ -191,7 +191,7 @@ function docker_cmd()
 
         # Build the UI if specified.
         if $BUILD_UI; then
-          bash ./ui/build.sh build "${NOTEBOOK_REPO}" "${DOCKER_TAG}"
+          bash ./ui/build.sh build "${NOTEBOOK_REPO}" "${DOCKER_TAG}" "${GIT_BRANCH}"
         fi
 
         docker build -t "${DEFAULT_IMAGE}:${DOCKER_TAG}" .
@@ -219,6 +219,8 @@ function docker_cmd()
                 echo "pushing $GCR_IMAGE docker image..."
                 $DOCKER_REMOTES_BINARY tag $DEFAULT_IMAGE:${DOCKER_TAG} ${GCR_IMAGE}:${DOCKER_TAG}
                 $GCR_REMOTES_BINARY push ${GCR_IMAGE}:${DOCKER_TAG}
+                $DOCKER_REMOTES_BINARY tag $DEFAULT_IMAGE:${DOCKER_TAG} ${GCR_IMAGE}:${GIT_BRANCH}
+                $GCR_REMOTES_BINARY push ${GCR_IMAGE}:${GIT_BRANCH}
             fi
            
             # pushes the juptyer notebooks and rstudio docker images that go on dataproc clusters

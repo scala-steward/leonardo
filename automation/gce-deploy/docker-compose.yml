@@ -1,7 +1,7 @@
 version: '3'
 services:
   app:
-    image: gcr.io/TEMPLATE_VAR_DOCKER_PROJECT/leonardo:TEMPLATE_VAR_DOCKER_TAG
+    image: us.gcr.io/TEMPLATE_VAR_DOCKER_PROJECT/leonardo:TEMPLATE_VAR_DOCKER_TAG
     # dns: - 8.8.4.4
     # logging: {"driver": "syslog", "options": {"tag": "leonardo-app"}}
     volumes:
@@ -29,7 +29,7 @@ services:
       - sqlproxy:sqlproxy
 
   userinterface:
-      image: gcr.io/TEMPLATE_VAR_DOCKER_PROJECT/leonardo-ui:TEMPLATE_VAR_DOCKER_TAG
+      image: us.gcr.io/TEMPLATE_VAR_DOCKER_PROJECT/leonardo-ui:TEMPLATE_VAR_DOCKER_TAG
       environment:
         - FILTER_TO_CURRENT_USER=false
         - DEPLOY_ENVIRONMENT=prod
@@ -37,7 +37,6 @@ services:
         - DEFAULT_PROJECT=''
         - DISABLE_PROJECT_ENTRY=false
         - STARTUP_SCRIPT_URI=''
-        - EXTRA_GOOGLE_SCOPES=''
 
   sqlproxy:
     image: gcr.io/cloudsql-docker/gce-proxy

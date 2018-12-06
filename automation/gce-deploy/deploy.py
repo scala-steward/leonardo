@@ -595,7 +595,8 @@ def build_jar_and_push(project, branch):
         '-p', project,
         '-d', 'push',
         '-gr', ''.join(['us.gcr.io/', project]),
-        '-n', ''.join(['us.gcr.io/', project])
+        '-n', ''.join(['us.gcr.io/', project]),
+        '-ui'
     ], env=current_env)
 
 
