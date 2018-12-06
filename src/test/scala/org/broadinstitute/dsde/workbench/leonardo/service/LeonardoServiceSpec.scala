@@ -78,6 +78,7 @@ class LeonardoServiceSpec extends TestKit(ActorSystem("leonardotest")) with Flat
   lazy val configFiles = List(
     clusterResourcesConfig.jupyterDockerCompose.value,
     clusterResourcesConfig.rstudioDockerCompose.value,
+    clusterResourcesConfig.galaxyDockerCompose.value,
     clusterResourcesConfig.proxyDockerCompose.value,
     clusterResourcesConfig.initActionsScript.value,
     clusterFilesConfig.jupyterServerCrt.getName,
