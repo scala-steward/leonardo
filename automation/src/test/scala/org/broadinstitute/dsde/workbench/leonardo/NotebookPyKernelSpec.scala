@@ -36,7 +36,7 @@ class NotebookPyKernelSpec extends ClusterFixtureSpec {
     "should execute cells" taggedAs Tags.SmokeTest in { clusterFixture =>
       withWebDriver { implicit driver =>
         withNewNotebook(clusterFixture.cluster) { notebookPage =>
-          notebookPage.executeCell("1+1") shouldBe Some("2")
+          notebookPage.executeCell("1+1") shouldBe Some("3")
           notebookPage.executeCell("2*3") shouldBe Some("6")
           notebookPage.executeCell("""print 'Hello Notebook!'""") shouldBe Some("Hello Notebook!")
         }
