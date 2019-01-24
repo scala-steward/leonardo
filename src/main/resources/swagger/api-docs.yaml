@@ -642,14 +642,99 @@ paths:
           description: Internal Error
           schema:
             $ref: '#/definitions/ErrorReport'
-
-  '/proxy/{googleProject}/{clusterName}':
+  '/proxy/{googleProject}/{clusterName}/jupyter/':
     get:
-      summary: Access the specified route on a Dataproc cluster
+      summary: Access Jupyter (if installed) on a Dataproc cluster
       description: |
         This URI supports all HTTP methods, not just GET as implied by this Swagger.
         Proxies all requests through to the tool server running on the given cluster.
-      operationId: proxyCluster
+      operationId: proxyClusterJupyter
+      tags:
+        - proxy
+      parameters:
+        - in: path
+          name: googleProject
+          description: googleProject
+          required: true
+          type: string
+        - in: path
+          name: clusterName
+          description: clusterName
+          required: true
+          type: string
+      responses:
+        '200':
+          description: Proxy connection successful
+        '403':
+          description: Proxy connection unauthorized
+          schema:
+            $ref: '#/definitions/ErrorReport'
+        '404':
+          description: Cluster not found
+          schema:
+            $ref: '#/definitions/ErrorReport'
+        '420':
+          description: Cluster not ready
+          schema:
+            $ref: '#/definitions/ErrorReport'
+        '422':
+          description: Cluster is stopped
+          schema:
+            $ref: '#/definitions/ErrorReport'
+        '500':
+          description: Internal Error
+          schema:
+            $ref: '#/definitions/ErrorReport'
+  '/proxy/{googleProject}/{clusterName}/jupyter/lab':
+    get:
+      summary: Access Jupyter Lab (if installed) on a Dataproc cluster
+      description: |
+        This URI supports all HTTP methods, not just GET as implied by this Swagger.
+        Proxies all requests through to the tool server running on the given cluster.
+      operationId: proxyClusterJupyterLab
+      tags:
+        - proxy
+      parameters:
+        - in: path
+          name: googleProject
+          description: googleProject
+          required: true
+          type: string
+        - in: path
+          name: clusterName
+          description: clusterName
+          required: true
+          type: string
+      responses:
+        '200':
+          description: Proxy connection successful
+        '403':
+          description: Proxy connection unauthorized
+          schema:
+            $ref: '#/definitions/ErrorReport'
+        '404':
+          description: Cluster not found
+          schema:
+            $ref: '#/definitions/ErrorReport'
+        '420':
+          description: Cluster not ready
+          schema:
+            $ref: '#/definitions/ErrorReport'
+        '422':
+          description: Cluster is stopped
+          schema:
+            $ref: '#/definitions/ErrorReport'
+        '500':
+          description: Internal Error
+          schema:
+            $ref: '#/definitions/ErrorReport'
+  '/proxy/{googleProject}/{clusterName}/rstudio/':
+    get:
+      summary: Access RStudio (if installed) on a Dataproc cluster
+      description: |
+        This URI supports all HTTP methods, not just GET as implied by this Swagger.
+        Proxies all requests through to the tool server running on the given cluster.
+      operationId: proxyClusterRStudio
       tags:
         - proxy
       parameters:

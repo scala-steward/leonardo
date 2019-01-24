@@ -287,7 +287,6 @@ if [[ "${ROLE}" == 'Master' ]]; then
       fi
 
       # If a Jupyter user script was specified, copy it into the jupyter docker container.
-      # TODO: not Jupyter specific
       if [ ! -z ${JUPYTER_USER_SCRIPT_URI} ] ; then
         log 'Installing Jupyter user extension [$JUPYTER_USER_SCRIPT_URI]...'
         gsutil cp ${JUPYTER_USER_SCRIPT_URI} /etc
