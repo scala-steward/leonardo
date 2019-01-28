@@ -171,6 +171,9 @@ RUN apt-get update \
     python3.6 \
     python3.6-dev \
     python3-distutils \
+    # for jupyterlab extensions
+    nodejs \
+    npm \
  && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.6 100 \
  && python3 get-pip.py \
  && pip3 install tornado==4.5.3 \
@@ -184,7 +187,7 @@ RUN apt-get update \
  && pip3 install pandas==0.23.4 \
  && pip3 install seaborn==0.9.0 \
  && pip3 install jupyter==1.0.0 \
- && pip3 install jupyterlab==0.35.2 \
+ && pip3 install jupyterlab==0.35.4 \
  && pip3 install python-lzo==1.12 \
  && pip3 install google-api-core==1.5.0 \
  && pip3 install google-cloud-bigquery==1.7.0 \
@@ -206,6 +209,8 @@ RUN apt-get update \
  && pip3 install matplotlib-venn==0.11.5 \
  # for jupyter_localize_extension
  && pip3 install python-datauri \
+ && pip3 install jupyter_contrib_nbextensions \
+ && pip3 install jupyter_nbextensions_configurator \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
@@ -235,7 +240,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends apt-utils \
     libssl-dev \
     libxml2-dev \
  && apt-get clean \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ # fixes broken gfortan dependency needed by some R libraries
+ # see: https://github.com/DataBiosphere/leonardo/issues/710
+ && ln -s /usr/lib/x86_64-linux-gnu/libgfortran.so.3 /usr/lib/x86_64-linux-gnu/libgfortran.so
 
 RUN R -e 'install.packages(c( \
     "IRdisplay",  \
@@ -266,7 +274,8 @@ ADD custom/jupyter_delocalize.py $JUPYTER_HOME/custom/
 ADD custom/jupyter_localize_extension.py $JUPYTER_HOME/custom/
 
 RUN chown -R $USER:users $JUPYTER_HOME \
- && find $JUPYTER_HOME/scripts -name '*.sh' -type f | xargs chmod +x
+ && find $JUPYTER_HOME/scripts -name '*.sh' -type f | xargs chmod +x \
+ && chown -R $USER:users /usr/local/share/jupyter/lab
 
 USER $USER
 WORKDIR $HOME
