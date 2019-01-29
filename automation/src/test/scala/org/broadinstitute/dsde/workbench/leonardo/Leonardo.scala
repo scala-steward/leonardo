@@ -174,9 +174,13 @@ object Leonardo extends RestClient with LazyLogging {
       mapper.readValue(response, classOf[ContentItem])
     }
 
-    def notebooksPathPrefix(googleProject: GoogleProject, clusterName: ClusterName): String =
-      s"proxy/${googleProject.value}/${clusterName.string}/jupyter"
+    def clusterProxyPrefix(googleProject: GoogleProject, clusterName: ClusterName): String =
+      s"proxy/${googleProject.value}/${clusterName.string}"
 
+    def notebooksPathPrefix(googleProject: GoogleProject, clusterName: ClusterName): String =
+      s"${clusterProxyPrefix}/jupyter"
+
+    //TODO: once the trailing slash is no longer required, we can combine this and notebooksPathPrefix
     def notebooksBasePath(googleProject: GoogleProject, clusterName: ClusterName): String =
       s"${notebooksPathPrefix(googleProject, clusterName)}/"
 
@@ -222,7 +226,7 @@ object Leonardo extends RestClient with LazyLogging {
     }
 
     def setCookie(googleProject: GoogleProject, clusterName: ClusterName)(implicit token: AuthToken, webDriver: WebDriver): String = {
-      val path = notebooksPathPrefix(googleProject, clusterName) + "/setCookie"
+      val path = clusterProxyPrefix(googleProject, clusterName) + "/setCookie"
       logger.info(s"Set cookie: GET /$path")
       parseResponse(getRequest(url + path, httpHeaders = List(Authorization(OAuth2BearerToken(token.value)))))
 
