@@ -21,7 +21,9 @@ class HttpJupyterDAO(val clusterDnsCache: ClusterDnsCache)(implicit system: Acto
 
   override def isProxyAvailable(googleProject: GoogleProject, clusterName: ClusterName): Future[Boolean] = {
     getTargetHost(googleProject, clusterName) flatMap {
-      case HostReady(targetHost) =>
+      case HostReady(targetHosts) =>
+        val targetHost = targetHosts.find(_.toString.contains("jupyter")).get
+
         val statusUri = Uri(s"https://${targetHost.toString}/notebooks/$googleProject/$clusterName/api/status")
         http.singleRequest(HttpRequest(uri = statusUri)) map { response =>
           response.status.isSuccess

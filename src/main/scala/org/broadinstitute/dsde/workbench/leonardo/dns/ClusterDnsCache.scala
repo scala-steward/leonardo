@@ -26,7 +26,7 @@ object ClusterDnsCache {
   case object HostNotFound extends HostStatus
   case object HostNotReady extends HostStatus
   case object HostPaused extends HostStatus
-  case class HostReady(hostname: Host) extends HostStatus
+  case class HostReady(hostnames: Set[Host]) extends HostStatus
 }
 
 case class DnsCacheKey(googleProject: GoogleProject, clusterName: ClusterName)
@@ -73,21 +73,31 @@ class ClusterDnsCache(proxyConfig: ProxyConfig, dbRef: DbReference, dnsCacheConf
     val hostStatus = hostStatusByProjectAndCluster(cluster)
 
     PartialFunction.condOpt(hostStatus) {
-      case HostReady(_) => hostToIpMapping.mutate(_ + hostToIpEntry(cluster))
+      //TODO: look here!
+      case HostReady(_) => hostToIpMapping.mutate(_ ++ hostToIpEntry(cluster))
     }
 
     hostStatus
   }
 
-  private def host(c: Cluster): Host = {
+
+  //TODO: want to create both the rstudio AND the jupyter entry here
+  private def host(c: Cluster): Set[Host] = {
     val googleId = c.dataprocInfo.googleId
     val assumption = s"Google ID for Google project/cluster ${c.googleProject}/${c.clusterName} must not be undefined."
     assert(googleId.isDefined, assumption)
 
-    Host(googleId.get.toString + proxyConfig.jupyterDomain)
+    c.clusterImages.map { images =>
+      val toolName = images.tool.getClass.getSimpleName.stripSuffix("$").toLowerCase
+      Host(toolName + "-" + googleId.get.toString + proxyConfig.jupyterDomain)
+    }
   }
 
-  private def hostToIpEntry(c: Cluster): (Host, IP) = host(c) -> c.dataprocInfo.hostIp.get
+  private def hostToIpEntry(c: Cluster): Set[(Host, IP)] = {
+    val hostNames = host(c)
+
+    hostNames.map(x => x -> c.dataprocInfo.hostIp.get)
+  }
 
   private def hostStatusByProjectAndCluster(c: Cluster): HostStatus = {
     if (c.status.isStartable)

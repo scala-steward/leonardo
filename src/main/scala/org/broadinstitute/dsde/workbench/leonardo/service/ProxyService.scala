@@ -146,7 +146,18 @@ class ProxyService(proxyConfig: ProxyConfig,
     }
   }
 
-  private def handleHttpRequest(targetHost: Host, request: HttpRequest): Future[HttpResponse] = {
+  private def handleHttpRequest(targetHosts: Set[Host], request: HttpRequest): Future[HttpResponse] = {
+
+    val targetHost = if(request.uri.path.toString.contains("rstudio")) {
+      println("we're proxying an rstudio connection...")
+      targetHosts.find(_.toString.contains("rstudio")).get //this is total hackery right now
+    } else if(request.uri.path.toString().contains("jupyter") || request.uri.path.toString().contains("notebooks")) {
+      targetHosts.find(_.toString.contains("jupyter")).get
+    } else throw ProxyException(GoogleProject("foo"), ClusterName("bar"))
+
+
+
+
     logger.debug(s"Opening https connection to ${targetHost.address}:${proxyConfig.jupyterPort}")
 
     // A note on akka-http philosophy:
@@ -158,6 +169,9 @@ class ProxyService(proxyConfig: ProxyConfig,
     // Initializes a Flow representing a prospective connection to the given endpoint. The connection
     // is not made until a Source and Sink are plugged into the Flow (i.e. it is materialized).
     val flow = Http().outgoingConnectionHttps(targetHost.address, proxyConfig.jupyterPort)
+
+    println(s"${targetHost.address}")
+    println(s"${proxyConfig.jupyterPort}")
 
     // Now build a Source[Request] out of the original HttpRequest. We need to make some modifications
     // to the original request in order for the proxy to work:
@@ -212,7 +226,14 @@ class ProxyService(proxyConfig: ProxyConfig,
     }
   }
 
-  private def handleWebSocketRequest(targetHost: Host, request: HttpRequest, upgrade: UpgradeToWebSocket): Future[HttpResponse] = {
+  private def handleWebSocketRequest(targetHosts: Set[Host], request: HttpRequest, upgrade: UpgradeToWebSocket): Future[HttpResponse] = {
+    val targetHost = if(request.uri.path.toString.contains("rstudio")) {
+      println("we're proxying an rstudio connection...")
+      targetHosts.find(_.toString.contains("rstudio")).get //this is total hackery right now
+    } else if(request.uri.path.toString().contains("jupyter") || request.uri.path.toString().contains("notebooks")) {
+      targetHosts.find(_.toString.contains("jupyter")).get
+    } else throw ProxyException(GoogleProject("foo"), ClusterName("bar"))
+
     logger.debug(s"Opening websocket connection to ${targetHost.address}")
 
     // This is a similar idea to handleHttpRequest(), we're just using WebSocket APIs instead of HTTP ones.
