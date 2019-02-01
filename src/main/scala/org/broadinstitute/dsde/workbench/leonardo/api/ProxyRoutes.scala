@@ -22,7 +22,8 @@ trait ProxyRoutes extends UserInfoDirectives with CorsSupport with CookieHelper 
   implicit val executionContext: ExecutionContext
 
   protected val proxyRoutes: Route =
-    pathPrefix("notebooks") {
+    //note that the "notebooks" path prefix is deprecated
+    pathPrefix("proxy" | "notebooks") {
 
       corsHandler {
 
@@ -49,30 +50,36 @@ trait ProxyRoutes extends UserInfoDirectives with CorsSupport with CookieHelper 
               (logRequestResultForMetrics(userInfo)) {
                 // Proxy logic handled by the ProxyService class
                 // Note ProxyService calls the LeoAuthProvider internally
+                complete {
+                  proxyService.proxyRequest(userInfo, googleProject, clusterName, request)
+                }
+              }
+            } ~
+            (extractRequest & extractUserInfo) { (request, userInfo) =>
+              (logRequestResultForMetrics(userInfo)) {
+                // Proxy logic handled by the ProxyService class
+                // Note ProxyService calls the LeoAuthProvider internally
                 path("api" / "localize") { // route for custom Jupyter server extension
                   complete {
                     proxyService.proxyLocalize(userInfo, googleProject, clusterName, request)
                   }
-                } ~
-                  complete {
-                    proxyService.proxyNotebook(userInfo, googleProject, clusterName, request)
-                  }
+                }
               }
             }
-      } ~
-        // No need to lookup the user or consult the auth provider for this endpoint
-        path("invalidateToken") {
-          get {
-            extractToken { token =>
-              complete {
-                proxyService.invalidateAccessToken(token).map { _ =>
-                  logger.debug(s"Invalidated access token $token")
-                  StatusCodes.OK
+        } ~
+          // No need to lookup the user or consult the auth provider for this endpoint
+          path("invalidateToken") {
+            get {
+              extractToken { token =>
+                complete {
+                  proxyService.invalidateAccessToken(token).map { _ =>
+                    logger.debug(s"Invalidated access token $token")
+                    StatusCodes.OK
+                  }
                 }
               }
             }
           }
-        }
       }
     }
 
