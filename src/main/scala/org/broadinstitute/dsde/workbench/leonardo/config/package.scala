@@ -24,6 +24,7 @@ package object config {
       config.getAs[String]("dataprocZone"),
       GoogleProject(config.getString("leoGoogleProject")),
       config.getString("dataprocDockerImage"),
+      config.getString("rstudioDockerImage"),
       config.getString("clusterUrlBase"),
       toScalaDuration(config.getDuration("defaultExecutionTimeout")),
       config.getString("jupyterServerName"),

@@ -946,7 +946,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
     ).flatten
 
     if (images.isEmpty) {
-      Set(ClusterImage(Jupyter, dataprocConfig.dataprocDockerImage, now))
+      Set(ClusterImage(Jupyter, dataprocConfig.dataprocDockerImage, now), ClusterImage(RStudio, dataprocConfig.rstudioDockerImage, now))
     } else {
       images
     }
