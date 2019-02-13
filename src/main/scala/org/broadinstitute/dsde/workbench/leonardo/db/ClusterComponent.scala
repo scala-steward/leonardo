@@ -184,6 +184,8 @@ trait ClusterComponent extends LeoComponent {
         }
     }
 
+    def getClusterForDnsCache(project: GoogleProject)
+
     def getDeletingClusterByName(project: GoogleProject, name: ClusterName): DBIO[Option[Cluster]] = {
       fullClusterQuery
         .filter { _._1.googleProject === project.value }

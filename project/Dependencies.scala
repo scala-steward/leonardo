@@ -9,6 +9,7 @@ object Dependencies {
   val scalaTestV    = "3.0.5"
   val slickV        = "3.2.3"
   val catsV         = "1.3.1"
+  val catsEffectV   = "1.1.0"
 
   val workbenchUtilV    = "0.5-6942040"
   val workbenchModelV   = "0.11-2bddd5b"
@@ -50,6 +51,7 @@ object Dependencies {
   val swaggerUi: ModuleID =      "org.webjars"                %  "swagger-ui"      % "2.2.5"
   val ficus: ModuleID =          "com.iheart"                 %% "ficus"           % "1.4.3"
   val cats: ModuleID =           "org.typelevel"              %% "cats-core"       % catsV
+  val catsEffect: ModuleID =     "org.typelevel"              %% "cats-effect"     % catsEffectV
   val httpClient: ModuleID =     "org.apache.httpcomponents"  % "httpclient"       % "4.5.5"  // upgrading a transitive dependency to avoid security warnings
   val enumeratum: ModuleID =     "com.beachape"               %% "enumeratum"      % "1.5.13"
 
@@ -65,6 +67,7 @@ object Dependencies {
   val googleRpc: ModuleID = "io.grpc" % "grpc-core" % "1.12.0" excludeAll(excludeGuava, excludeGson, excludeFindbugsJsr)
   val googleOAuth2: ModuleID = "com.google.auth" % "google-auth-library-oauth2-http" % "0.9.1" excludeAll(excludeGuava, excludeFindbugsJsr, excludeGoogleApiClient, excludeGoogleApiClientJackson2, excludeGoogleHttpClient, excludeHttpComponent)
   val googleSourceRepositories: ModuleID = "com.google.apis" % "google-api-services-sourcerepo" % s"v1-rev21-$googleV" excludeAll(excludeGuavaJDK5)
+  val googleKubernetes: ModuleID = "com.google.apis" % "google-api-services-container" % s"v1-rev57-$googleV" excludeAll(excludeGuavaJDK5)
 
   val scalaTest: ModuleID = "org.scalatest" %% "scalatest"    % scalaTestV % "test"
   val mockito: ModuleID =   "org.mockito"    % "mockito-core" % "2.18.3"   % "test"
@@ -97,6 +100,7 @@ object Dependencies {
     swaggerUi,
     ficus,
     cats,
+    catsEffect,
     httpClient,
     enumeratum,
 
@@ -109,6 +113,7 @@ object Dependencies {
     akkaHttpTestKit,
 
     googleDataproc,
+    googleKubernetes,
     googleRpc,
     googleOAuth2,
     googleSourceRepositories,
