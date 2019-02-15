@@ -2,12 +2,13 @@ package org.broadinstitute.dsde.workbench.leonardo.service
 
 import java.time.Instant
 import java.util.concurrent.TimeUnit
+import java.util.regex.Pattern
 
 import akka.actor.{ActorRef, ActorSystem}
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.Uri.Host
 import akka.http.scaladsl.model._
-import akka.http.scaladsl.model.headers.`Content-Disposition`
+import akka.http.scaladsl.model.headers.{RawHeader, `Content-Disposition`}
 import akka.http.scaladsl.model.ws._
 import akka.pattern.ask
 import akka.stream.ActorMaterializer
@@ -162,10 +163,50 @@ class ProxyService(proxyConfig: ProxyConfig,
     // Now build a Source[Request] out of the original HttpRequest. We need to make some modifications
     // to the original request in order for the proxy to work:
 
+    // We support 2 tools and a legacy path for Jupyter. Eventually we will deprecate the legacy path.
+    val rstudioPattern = "(\\/proxy\\/[^\\/]*\\/[^\\/]*\\/rstudio\\/)(.*)?".r
+    val jupyterPattern = "(\\/proxy\\/[^\\/]*\\/[^\\/]*\\/jupyter\\/)(.*)?".r
+    val jupyterLegacyPattern = "(\\/notebooks\\/[^\\/]*\\/[^\\/]*)(.*)?".r
+
+    // We take care of three things here:
+    // 1) We need to supply a header specifying which tool. This will allow the cluster-site.conf to
+    //    redirect the request to the appropriate port.
+    // 2) We need to rewrite the path to strip off the prefix prior to the tool name
+    // 3) /tool/ is added in front of these rewritten paths because we cannot have an empty Uri.
+    //    The cluster-site.conf will ignore /tool/ anyway so this is merely a workaround.
+    val (toolHeader, rewrittenPath) = request.uri.path.toString match {
+      case rstudioPattern(_, newPath) => {
+        val toolHeader = RawHeader("X-Leonardo-Tool", "rstudio")
+        val rewrittenPath = Uri.Path("/tool/" + newPath)
+
+        (toolHeader, rewrittenPath)
+      }
+      case jupyterPattern(_, newPath) => {
+        val toolHeader = RawHeader("X-Leonardo-Tool", "jupyter")
+        val rewrittenPath = Uri.Path("/tool/" + newPath)
+
+        (toolHeader, rewrittenPath)
+      }
+      case jupyterLegacyPattern(_, newPath) => {
+        val toolHeader = RawHeader("X-Leonardo-Tool", "jupyter")
+        val rewrittenPath = Uri.Path("/tool/" + newPath)
+
+        (toolHeader, rewrittenPath)
+      }
+      // If we don't recognize which tool it is, we'll add a "none" header for the tool and pass the
+      // request through. apache will deal with it from there.
+      case _ => {
+        val toolHeader = RawHeader("X-Leonardo-Tool", "none")
+        val rewrittenPath = request.uri.path
+
+        (toolHeader, rewrittenPath)
+      }
+    }
+
     // 1. filter out headers not needed for the backend server
-    val newHeaders = filterHeaders(request.headers)
+    val newHeaders = filterHeaders(request.headers) ++ Seq(toolHeader)
     // 2. strip out Uri.Authority:
-    val newUri = Uri(path = request.uri.path, queryString = request.uri.queryString())
+    val newUri = Uri(path = rewrittenPath, queryString = request.uri.queryString())
     // 3. build a new HttpRequest
     val newRequest = request.copy(headers = newHeaders, uri = newUri)
 
