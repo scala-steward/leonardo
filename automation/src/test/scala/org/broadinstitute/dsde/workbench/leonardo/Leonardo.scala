@@ -174,33 +174,32 @@ object Leonardo extends RestClient with LazyLogging {
       mapper.readValue(response, classOf[ContentItem])
     }
 
-    def clusterProxyPrefix(googleProject: GoogleProject, clusterName: ClusterName): String =
+    def proxyBasePath(googleProject: GoogleProject, clusterName: ClusterName): String =
       s"proxy/${googleProject.value}/${clusterName.string}"
 
-    def notebooksPathPrefix(googleProject: GoogleProject, clusterName: ClusterName): String =
-      s"${clusterProxyPrefix}/jupyter"
+    def jupyterProxyBasePath(googleProject: GoogleProject, clusterName: ClusterName): String =
+      s"proxy/${googleProject.value}/${clusterName.string}/jupyter"
 
-    //TODO: once the trailing slash is no longer required, we can combine this and notebooksPathPrefix
     def notebooksBasePath(googleProject: GoogleProject, clusterName: ClusterName): String =
-      s"${notebooksPathPrefix(googleProject, clusterName)}/"
+      s"notebooks/${googleProject.value}/${clusterName.string}"
 
     def notebooksTreePath(googleProject: GoogleProject, clusterName: ClusterName): String =
-      s"${notebooksPathPrefix(googleProject, clusterName)}/tree"
+      s"${jupyterProxyBasePath(googleProject, clusterName)}/tree"
 
     def contentsPath(googleProject: GoogleProject, clusterName: ClusterName, contentPath: String): String =
-      s"${notebooksPathPrefix(googleProject, clusterName)}/api/contents/$contentPath"
+      s"${jupyterProxyBasePath(googleProject, clusterName)}/api/contents/$contentPath"
 
     def localizePath(googleProject: GoogleProject, clusterName: ClusterName, async: Boolean = false): String =
-      s"${notebooksPathPrefix(googleProject, clusterName)}/api/localize${if (async) "?async=true" else ""}"
+      s"${notebooksBasePath(googleProject, clusterName)}/api/localize${if (async) "?async=true" else ""}"
 
     def get(googleProject: GoogleProject, clusterName: ClusterName)(implicit token: AuthToken, webDriver: WebDriver): NotebooksListPage = {
-      val path = notebooksBasePath(googleProject, clusterName)
+      val path = jupyterProxyBasePath(googleProject, clusterName)
       logger.info(s"Get notebook: GET /$path")
       new NotebooksListPage(url + path)
     }
 
     def getApi(googleProject: GoogleProject, clusterName: ClusterName)(implicit token: AuthToken): String = {
-      val path = notebooksBasePath(googleProject, clusterName)
+      val path = jupyterProxyBasePath(googleProject, clusterName)
       logger.info(s"Get notebook: GET /$path")
       parseResponse(getRequest(url + path))
     }
@@ -226,7 +225,7 @@ object Leonardo extends RestClient with LazyLogging {
     }
 
     def setCookie(googleProject: GoogleProject, clusterName: ClusterName)(implicit token: AuthToken, webDriver: WebDriver): String = {
-      val path = clusterProxyPrefix(googleProject, clusterName) + "/setCookie"
+      val path = proxyBasePath(googleProject, clusterName) + "/setCookie"
       logger.info(s"Set cookie: GET /$path")
       parseResponse(getRequest(url + path, httpHeaders = List(Authorization(OAuth2BearerToken(token.value)))))
 
