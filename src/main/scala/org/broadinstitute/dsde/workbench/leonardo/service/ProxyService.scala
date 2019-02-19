@@ -165,8 +165,8 @@ class ProxyService(proxyConfig: ProxyConfig,
 
     // We support 2 tools and a legacy path for Jupyter. Eventually we will deprecate the legacy path.
     val rstudioPattern = "(\\/proxy\\/[^\\/]*\\/[^\\/]*\\/rstudio\\/)(.*)?".r
-    val jupyterPattern = "(\\/proxy\\/[^\\/]*\\/[^\\/]*\\/jupyter\\/)(.*)?".r
-    val jupyterLegacyPattern = "(\\/notebooks\\/[^\\/]*\\/[^\\/]*)(.*)?".r
+    val jupyterPattern = "\\/proxy\\/([^\\/]*)\\/([^\\/]*)\\/jupyter\\/?(.*)?".r
+    val jupyterLegacyPattern = "\\/notebooks\\/[^\\/]*\\/[^\\/]*\\/?(.*)?".r
 
     // We take care of three things here:
     // 1) We need to supply a header specifying which tool. This will allow the cluster-site.conf to
@@ -181,15 +181,26 @@ class ProxyService(proxyConfig: ProxyConfig,
 
         (toolHeader, rewrittenPath)
       }
-      case jupyterPattern(_, newPath) => {
+      //for now we will convert the newly supported jupyter path into the legacy path
+      //once we fully remove the legacy path, we will need to upgrade various jupyter configs
+      //to ensure that the correct paths are used(i.e. see jupyter_notebook_config.py)
+      case jupyterPattern(project, cluster, path) => {
+        println("matched in new jupyter path!")
+
         val toolHeader = RawHeader("X-Leonardo-Tool", "jupyter")
-        val rewrittenPath = Uri.Path("/tool/" + newPath)
+        val rewrittenPath = Uri.Path("/notebooks/" + project + "/" + cluster + "/" + path)
+
+        println(rewrittenPath.toString)
 
         (toolHeader, rewrittenPath)
       }
-      case jupyterLegacyPattern(_, newPath) => {
+      case jupyterLegacyPattern(_) => {
+        println("matched in LEGACY jupyter path!")
+
         val toolHeader = RawHeader("X-Leonardo-Tool", "jupyter")
-        val rewrittenPath = Uri.Path("/tool/" + newPath)
+        val rewrittenPath = Uri.Path(request.uri.path.toString) //just pass the old one through
+
+        println(rewrittenPath.toString)
 
         (toolHeader, rewrittenPath)
       }
