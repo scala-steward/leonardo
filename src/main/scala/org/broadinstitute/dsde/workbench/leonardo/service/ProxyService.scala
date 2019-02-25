@@ -185,8 +185,6 @@ class ProxyService(proxyConfig: ProxyConfig,
       //once we fully remove the legacy path, we will need to upgrade various jupyter configs
       //to ensure that the correct paths are used(i.e. see jupyter_notebook_config.py)
       case jupyterPattern(project, cluster, path) => {
-        println("matched in new jupyter path!")
-
         val toolHeader = RawHeader("X-Leonardo-Tool", "jupyter")
         val rewrittenPath = Uri.Path("/notebooks/" + project + "/" + cluster + "/" + path)
 
@@ -195,8 +193,6 @@ class ProxyService(proxyConfig: ProxyConfig,
         (toolHeader, rewrittenPath)
       }
       case jupyterLegacyPattern(_) => {
-        println("matched in LEGACY jupyter path!")
-
         val toolHeader = RawHeader("X-Leonardo-Tool", "jupyter")
         val rewrittenPath = Uri.Path(request.uri.path.toString) //just pass the old one through
 
