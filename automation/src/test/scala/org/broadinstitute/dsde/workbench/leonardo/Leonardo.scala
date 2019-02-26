@@ -184,22 +184,22 @@ object Leonardo extends RestClient with LazyLogging {
       s"notebooks/${googleProject.value}/${clusterName.string}"
 
     def notebooksTreePath(googleProject: GoogleProject, clusterName: ClusterName): String =
-      s"${jupyterProxyBasePath(googleProject, clusterName)}/tree"
+      s"${notebooksBasePath(googleProject, clusterName)}/tree"
 
     def contentsPath(googleProject: GoogleProject, clusterName: ClusterName, contentPath: String): String =
-      s"${jupyterProxyBasePath(googleProject, clusterName)}/api/contents/$contentPath"
+      s"${notebooksBasePath(googleProject, clusterName)}/api/contents/$contentPath"
 
     def localizePath(googleProject: GoogleProject, clusterName: ClusterName, async: Boolean = false): String =
       s"${notebooksBasePath(googleProject, clusterName)}/api/localize${if (async) "?async=true" else ""}"
 
     def get(googleProject: GoogleProject, clusterName: ClusterName)(implicit token: AuthToken, webDriver: WebDriver): NotebooksListPage = {
-      val path = jupyterProxyBasePath(googleProject, clusterName)
+      val path = notebooksBasePath(googleProject, clusterName)
       logger.info(s"Get notebook: GET /$path")
       new NotebooksListPage(url + path)
     }
 
     def getApi(googleProject: GoogleProject, clusterName: ClusterName)(implicit token: AuthToken): String = {
-      val path = jupyterProxyBasePath(googleProject, clusterName)
+      val path = notebooksBasePath(googleProject, clusterName)
       logger.info(s"Get notebook: GET /$path")
       parseResponse(getRequest(url + path))
     }
@@ -225,7 +225,7 @@ object Leonardo extends RestClient with LazyLogging {
     }
 
     def setCookie(googleProject: GoogleProject, clusterName: ClusterName)(implicit token: AuthToken, webDriver: WebDriver): String = {
-      val path = proxyBasePath(googleProject, clusterName) + "/setCookie"
+      val path = notebooksBasePath(googleProject, clusterName) + "/setCookie"
       logger.info(s"Set cookie: GET /$path")
       parseResponse(getRequest(url + path, httpHeaders = List(Authorization(OAuth2BearerToken(token.value)))))
 
