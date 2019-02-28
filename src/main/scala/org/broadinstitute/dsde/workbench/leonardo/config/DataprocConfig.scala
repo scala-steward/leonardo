@@ -10,6 +10,7 @@ case class DataprocConfig(
                            dataprocZone: Option[String],
                            leoGoogleProject: GoogleProject,
                            dataprocDockerImage: String,
+                           rstudioDockerImage: String,
                            clusterUrlBase: String,
                            defaultExecutionTimeout: FiniteDuration,
                            jupyterServerName: String,
