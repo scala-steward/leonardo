@@ -356,6 +356,25 @@ class ClusterMonitoringSpec extends FreeSpec with LeonardoTestUtils with Paralle
         }
       }
     }
+
+    "should create a cluster with GPUs" in {
+      withProject { project => implicit token =>
+        val clusterRequest = ClusterRequest(
+          machineConfig = Some(MachineConfig(
+            numberOfWorkers = Some(2),
+            masterAcceleratorType = Some("nvidia-tesla-k80"),
+            masterAcceleratorCount = Some(1),
+            workerAcceleratorType = Some("nvidia-tesla-p100"),
+            workerAcceleratorCount = Some(2))))
+        withNewCluster(project, request = clusterRequest) { cluster =>
+          withWebDriver { implicit driver =>
+            withNewNotebook(cluster) { notebookPage =>
+              // TODO test GPU
+            }
+          }
+        }
+      }
+    }
   }
 
 }

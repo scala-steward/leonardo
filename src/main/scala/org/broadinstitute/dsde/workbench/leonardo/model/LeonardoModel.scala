@@ -173,16 +173,25 @@ object MachineConfigOps {
     def combine(defined: MachineConfig, default: MachineConfig): MachineConfig = {
       val minimumDiskSize = 10
       defined.numberOfWorkers match {
-        case None | Some(0) => MachineConfig(Some(0), defined.masterMachineType.orElse(default.masterMachineType),
-          checkNegativeValue(defined.masterDiskSize.orElse(default.masterDiskSize)).map(s => math.max(minimumDiskSize, s)))
+        case None | Some(0) => MachineConfig(
+          numberOfWorkers = Some(0),
+          masterMachineType = defined.masterMachineType.orElse(default.masterMachineType),
+          masterDiskSize = checkNegativeValue(defined.masterDiskSize.orElse(default.masterDiskSize)).map(s => math.max(minimumDiskSize, s)),
+          masterAcceleratorType = defined.masterAcceleratorType.orElse(default.masterAcceleratorType),
+          masterAcceleratorCount = defined.masterAcceleratorCount.orElse(default.masterAcceleratorCount))
         case Some(numWorkers) if numWorkers == 1 => throw OneWorkerSpecifiedInClusterRequestException()
-        case numWorkers => MachineConfig(checkNegativeValue(numWorkers),
-          defined.masterMachineType.orElse(default.masterMachineType),
-          checkNegativeValue(defined.masterDiskSize.orElse(default.masterDiskSize)).map(s => math.max(minimumDiskSize, s)),
-          defined.workerMachineType.orElse(default.workerMachineType),
-          checkNegativeValue(defined.workerDiskSize.orElse(default.workerDiskSize)).map(s => math.max(minimumDiskSize, s)),
-          checkNegativeValue(defined.numberOfWorkerLocalSSDs.orElse(default.numberOfWorkerLocalSSDs)),
-          checkNegativeValue(defined.numberOfPreemptibleWorkers.orElse(default.numberOfPreemptibleWorkers)))
+        case numWorkers => MachineConfig(
+          numberOfWorkers = checkNegativeValue(numWorkers),
+          masterMachineType = defined.masterMachineType.orElse(default.masterMachineType),
+          masterDiskSize = checkNegativeValue(defined.masterDiskSize.orElse(default.masterDiskSize)).map(s => math.max(minimumDiskSize, s)),
+          workerMachineType = defined.workerMachineType.orElse(default.workerMachineType),
+          workerDiskSize = checkNegativeValue(defined.workerDiskSize.orElse(default.workerDiskSize)).map(s => math.max(minimumDiskSize, s)),
+          numberOfWorkerLocalSSDs = checkNegativeValue(defined.numberOfWorkerLocalSSDs.orElse(default.numberOfWorkerLocalSSDs)),
+          numberOfPreemptibleWorkers = checkNegativeValue(defined.numberOfPreemptibleWorkers.orElse(default.numberOfPreemptibleWorkers)),
+          masterAcceleratorType = defined.masterAcceleratorType.orElse(default.masterAcceleratorType),
+          masterAcceleratorCount = defined.masterAcceleratorCount.orElse(default.masterAcceleratorCount),
+          workerAcceleratorType = defined.workerAcceleratorType.orElse(default.workerAcceleratorType),
+          workerAcceleratorCount = defined.workerAcceleratorCount.orElse(default.workerAcceleratorCount))
       }
     }
   }

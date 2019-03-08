@@ -271,6 +271,16 @@ class LeonardoServiceSpec extends TestKit(ActorSystem("leonardotest")) with Flat
     }
   }
 
+  it should "create a standard cluster with GPU enabled on master and workers" in isolatedDbTest {
+    val machineConfig = MachineConfig(Some(2), Some("test-master-machine-type"), Some(5), Some("test-worker-machine-type"), Some(5), Some(3), Some(4), Some("test-master-accelerator-type"), Some(2), Some("test-worker-accelerator-type"), Some(20))
+    val clusterRequestWithMachineConfig = testClusterRequest.copy(machineConfig = Some(machineConfig))
+
+    forallClusterCreationMethods { (creationMethod, clusterName) =>
+      val clusterCreateResponse = creationMethod(userInfo, project, clusterName, clusterRequestWithMachineConfig).futureValue
+      clusterCreateResponse.machineConfig shouldEqual machineConfig
+    }
+  }
+
   it should "throw OneWorkerSpecifiedInClusterRequestException when create a 1 worker cluster" in isolatedDbTest {
     val clusterRequestWithMachineConfig = testClusterRequest.copy(machineConfig = Some(MachineConfig(Some(1))))
 

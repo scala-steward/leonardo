@@ -240,10 +240,19 @@ class HttpGoogleDataprocDAO(appName: String,
     // This executable is our init-actions.sh, which will stand up our jupyter server and proxy.
     val initActions = Seq(new NodeInitializationAction().setExecutableFile(initScript.toUri).setExecutionTimeout(finiteDurationToGoogleDuration(defaultExecutionTimeout)))
 
+    // Get master accelerator config (GPUs)
+    val masterAcceleratorConfigOpt = machineConfig.masterAcceleratorType.map { accel =>
+      val count = machineConfig.masterAcceleratorCount.getOrElse(1)
+      new AcceleratorConfig()
+        .setAcceleratorTypeUri(accel)
+        .setAcceleratorCount(count)
+    }
+
     // Create a config for the master node, if properties are not specified in request, use defaults
     val masterConfig = new InstanceGroupConfig()
       .setMachineTypeUri(machineConfig.masterMachineType.get)
       .setDiskConfig(new DiskConfig().setBootDiskSizeGb(machineConfig.masterDiskSize.get))
+      .setAccelerators(masterAcceleratorConfigOpt.map(List(_)).getOrElse(List.empty).asJava)
 
     // Set the zone, if specified. If not specified, Dataproc will pick a zone within the configured region.
     zoneOpt.foreach { zone =>
@@ -330,14 +339,24 @@ class HttpGoogleDataprocDAO(appName: String,
   }
 
   private def getPrimaryWorkerConfig(machineConfig: MachineConfig): InstanceGroupConfig = {
+    // Get worker disk config
     val workerDiskConfig = new DiskConfig()
       .setBootDiskSizeGb(machineConfig.workerDiskSize.get)
       .setNumLocalSsds(machineConfig.numberOfWorkerLocalSSDs.get)
+
+    // Get worker accelerator config (GPUs)
+    val workerAcceleratorConfigOpt = machineConfig.workerAcceleratorType.map { accel =>
+      val count = machineConfig.workerAcceleratorCount.getOrElse(1)
+      new AcceleratorConfig()
+        .setAcceleratorTypeUri(accel)
+        .setAcceleratorCount(count)
+    }
 
     new InstanceGroupConfig()
       .setNumInstances(machineConfig.numberOfWorkers.get)
       .setMachineTypeUri(machineConfig.workerMachineType.get)
       .setDiskConfig(workerDiskConfig)
+      .setAccelerators(workerAcceleratorConfigOpt.map(List(_)).getOrElse(List.empty).asJava)
   }
 
   /**

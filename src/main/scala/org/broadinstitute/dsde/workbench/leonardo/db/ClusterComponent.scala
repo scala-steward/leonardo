@@ -39,7 +39,11 @@ case class MachineConfigRecord(numberOfWorkers: Int,
                                workerMachineType: Option[String],
                                workerDiskSize: Option[Int],
                                numberOfWorkerLocalSsds: Option[Int],
-                               numberOfPreemptibleWorkers: Option[Int])
+                               numberOfPreemptibleWorkers: Option[Int],
+                               masterAcceleratorType: Option[String],
+                               masterAcceleratorCount: Option[Int],
+                               workerAcceleratorType: Option[String],
+                               workerAcceleratorCount: Option[Int])
 
 case class ServiceAccountInfoRecord(clusterServiceAccount: Option[String],
                                     notebookServiceAccount: Option[String],
@@ -64,6 +68,10 @@ trait ClusterComponent extends LeoComponent {
     def workerDiskSize = column[Option[Int]]("workerDiskSize")
     def numberOfWorkerLocalSSDs = column[Option[Int]]("numberOfWorkerLocalSSDs")
     def numberOfPreemptibleWorkers = column[Option[Int]]("numberOfPreemptibleWorkers")
+    def masterAcceleratorType = column[Option[String]]("masterAcceleratorType", O.Length(254))
+    def masterAcceleratorCount = column[Option[Int]]("masterAcceleratorCount")
+    def workerAcceleratorType = column[Option[String]]("workerAcceleratorType", O.Length(254))
+    def workerAcceleratorCount = column[Option[Int]]("workerAcceleratorCount")
     def operationName = column[Option[String]]("operationName", O.Length(254))
     def status = column[String]("status", O.Length(254))
     def hostIp = column[Option[String]]("hostIp", O.Length(254))
@@ -89,7 +97,7 @@ trait ClusterComponent extends LeoComponent {
     def * = (
       id, clusterName, googleId, googleProject, operationName, status, hostIp, creator,
       createdDate, destroyedDate, jupyterExtensionUri, jupyterUserScriptUri, initBucket,
-      (numberOfWorkers, masterMachineType, masterDiskSize, workerMachineType, workerDiskSize, numberOfWorkerLocalSSDs, numberOfPreemptibleWorkers),
+      (numberOfWorkers, masterMachineType, masterDiskSize, workerMachineType, workerDiskSize, numberOfWorkerLocalSSDs, numberOfPreemptibleWorkers, masterAcceleratorType, masterAcceleratorCount, workerAcceleratorType, workerAcceleratorCount),
       (clusterServiceAccount, notebookServiceAccount, serviceAccountKeyId), stagingBucket, dateAccessed, autopauseThreshold, defaultClientId, stopAfterCreation
     ).shaped <> ({
       case (id, clusterName, googleId, googleProject, operationName, status, hostIp, creator,
@@ -401,7 +409,11 @@ trait ClusterComponent extends LeoComponent {
           cluster.machineConfig.workerMachineType,
           cluster.machineConfig.workerDiskSize,
           cluster.machineConfig.numberOfWorkerLocalSSDs,
-          cluster.machineConfig.numberOfPreemptibleWorkers
+          cluster.machineConfig.numberOfPreemptibleWorkers,
+          cluster.machineConfig.masterAcceleratorType,
+          cluster.machineConfig.masterAcceleratorCount,
+          cluster.machineConfig.workerAcceleratorType,
+          cluster.machineConfig.workerAcceleratorCount
         ),
         ServiceAccountInfoRecord(
           cluster.serviceAccountInfo.clusterServiceAccount.map(_.value),
@@ -461,7 +473,11 @@ trait ClusterComponent extends LeoComponent {
         clusterRecord.machineConfig.workerMachineType,
         clusterRecord.machineConfig.workerDiskSize,
         clusterRecord.machineConfig.numberOfWorkerLocalSsds,
-        clusterRecord.machineConfig.numberOfPreemptibleWorkers)
+        clusterRecord.machineConfig.numberOfPreemptibleWorkers,
+        clusterRecord.machineConfig.masterAcceleratorType,
+        clusterRecord.machineConfig.masterAcceleratorCount,
+        clusterRecord.machineConfig.workerAcceleratorType,
+        clusterRecord.machineConfig.workerAcceleratorCount)
       val serviceAccountInfo = ServiceAccountInfo(
         clusterRecord.serviceAccountInfo.clusterServiceAccount.map(WorkbenchEmail),
         clusterRecord.serviceAccountInfo.notebookServiceAccount.map(WorkbenchEmail))

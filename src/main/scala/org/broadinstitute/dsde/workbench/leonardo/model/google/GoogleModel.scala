@@ -25,7 +25,11 @@ case class MachineConfig(numberOfWorkers: Option[Int] = None,
                          workerMachineType: Option[String] = None,
                          workerDiskSize: Option[Int] = None,   //min 10
                          numberOfWorkerLocalSSDs: Option[Int] = None, //min 0 max 8
-                         numberOfPreemptibleWorkers: Option[Int] = None)
+                         numberOfPreemptibleWorkers: Option[Int] = None,
+                         masterAcceleratorType: Option[String] = None,
+                         masterAcceleratorCount: Option[Int] = None,
+                         workerAcceleratorType: Option[String] = None,
+                         workerAcceleratorCount: Option[Int] = None)
 
 // Dataproc Operation
 case class OperationName(value: String) extends ValueObject
@@ -144,7 +148,7 @@ object GoogleJsonSupport extends SprayJsonSupport with DefaultJsonProtocol {
   implicit val MachineTypeFormat = ValueObjectFormat(MachineType)
   implicit val ZoneUriFormat = ValueObjectFormat(ZoneUri)
 
-  implicit val MachineConfigFormat = jsonFormat7(MachineConfig.apply)
+  implicit val MachineConfigFormat = jsonFormat11(MachineConfig.apply)
 
   implicit val OperationNameFormat = ValueObjectFormat(OperationName)
   implicit val OperationFormat = jsonFormat2(Operation)

@@ -1134,6 +1134,26 @@ definitions:
         description: |
           Optional, the number of preemptible workers. If unspecified, the default number is 0. Ignored if numberOfWorkers is 0.
           For more information, see https://cloud.google.com/compute/docs/instances/preemptible
+      masterAcceleratorType:
+        type: string
+        description: |
+          Optional type of GPU to install on the cluster master node. If unspecified, no GPU is installed.
+          For more information, see https://cloud.google.com/dataproc/docs/concepts/compute/gpus
+      masterAcceleratorCount:
+        type: integer
+        description: |
+          Optional number of GPUs to expose to the master instance. Ignored if masterAcceleratorType is undefined. Defaults to 1.
+          For more information, see https://cloud.google.com/dataproc/docs/concepts/compute/gpus
+      workerAcceleratorType:
+        type: string
+        description: |
+          Optional type of GPU to install on the cluster worker nodes. If unspecified, no GPU is installed. Ignored if numberOfWorkers is 0.
+          For more information, see https://cloud.google.com/dataproc/docs/concepts/compute/gpus
+      workerAcceleratorCount:
+        type: integer
+        description: |
+          Optional number of GPUs to expose to the worker instances. Ignored if workerAcceleratorType is undefined or if numberOfWorkers is 0. Defaults to 1.
+          For more information, see https://cloud.google.com/dataproc/docs/concepts/compute/gpus
 
   UserJupyterExtensionConfig:
     description: 'Specification of Jupyter Extensions to be installed on the cluster'

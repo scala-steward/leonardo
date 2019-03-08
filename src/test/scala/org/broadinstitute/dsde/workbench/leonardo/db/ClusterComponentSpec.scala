@@ -28,7 +28,7 @@ class ClusterComponentSpec extends TestComponent with FlatSpecLike with CommonTe
 
     val cluster2 = makeCluster(2).copy(status = ClusterStatus.Creating)
 
-    val cluster3 = makeCluster(3).copy(machineConfig = MachineConfig(Some(3), Some("test-master-machine-type"), Some(500), Some("test-worker-machine-type"), Some(200), Some(2), Some(1)),
+    val cluster3 = makeCluster(3).copy(machineConfig = MachineConfig(Some(3), Some("test-master-machine-type"), Some(500), Some("test-worker-machine-type"), Some(200), Some(2), Some(1), Some("nvidia"), Some(1), Some("tesla"), Some(20)),
                                       serviceAccountInfo = ServiceAccountInfo(None, Some(serviceAccountEmail)),
                                       status = ClusterStatus.Running)
 

@@ -22,7 +22,11 @@ case class MachineConfig(numberOfWorkers: Option[Int] = None,
                          workerMachineType: Option[String] = None,
                          workerDiskSize: Option[Int] = None,   //min 10
                          numberOfWorkerLocalSSDs: Option[Int] = None, //min 0 max 8
-                         numberOfPreemptibleWorkers: Option[Int] = None
+                         numberOfPreemptibleWorkers: Option[Int] = None,
+                         masterAcceleratorType: Option[String],
+                         masterAcceleratorCount: Option[Int],
+                         workerAcceleratorType: Option[String],
+                         workerAcceleratorCount: Option[Int]
                         )
 object MachineConfig {
   // TODO: something less hacky
@@ -33,7 +37,11 @@ object MachineConfig {
     m.get("workerMachineType"),
     m.get("workerDiskSize").map(Integer.parseInt),
     m.get("numberOfWorkerLocalSSDs").map(Integer.parseInt),
-    m.get("numberOfPreemptibleWorkers").map(Integer.parseInt)
+    m.get("numberOfPreemptibleWorkers").map(Integer.parseInt),
+    m.get("masterAcceleratorType"),
+    m.get("masterAcceleratorCount").map(Integer.parseInt),
+    m.get("workerAcceleratorType"),
+    m.get("workerAcceleratorCount").map(Integer.parseInt)
   )
 }
 
