@@ -129,7 +129,7 @@ if [[ "${ROLE}" == 'Master' ]]; then
 
     log 'Installing Docker...'
 
-    retry 5 betterAptGet
+    retry 5 apt-get update
     retry 5 apt-get install -y -q docker-ce=$DOCKER_CE_VERSION
 
     log 'Installing Docker Compose...'
