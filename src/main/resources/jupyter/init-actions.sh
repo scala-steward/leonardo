@@ -163,7 +163,8 @@ if [[ "${ROLE}" == 'Master' ]]; then
     touch auth_openidc.conf
 
     # do not enable welder yet.  Remove flag when welder is complete.
-    WELDER_ENABLED=false
+    # ENABLED FOR TESTING
+    WELDER_ENABLED=true
 
     # If we have a service account JSON file, create an .env file to set GOOGLE_APPLICATION_CREDENTIALS
     # in the docker container. Otherwise, we should _not_ set this environment variable so it uses the
@@ -220,7 +221,7 @@ if [[ "${ROLE}" == 'Master' ]]; then
 
     # if Welder is installed, start the service.
     # See https://broadworkbench.atlassian.net/browse/IA-1026
-    if [ ! -z ${WELDER_DOCKER_IMAGE} ] ; then
+    if [ ! -z ${WELDER_DOCKER_IMAGE} ] && [ "${WELDER_ENABLED}" == "true" ] ; then
       log 'Starting Welder file synchronization service...'
       retry 3 docker exec -u root ${WELDER_SERVER_NAME} /opt/docker/bin/server start
     fi
