@@ -10,7 +10,7 @@ See [firecloud-automated-testing](https://github.com/broadinstitute/firecloud-au
 ### Set Up
 
 ```
-brew install chromedriver
+brew cask install chromedriver
 ```
 
 Note: Leonardo integration tests are not currently web-based but may fail due to dependencies without chromedriver

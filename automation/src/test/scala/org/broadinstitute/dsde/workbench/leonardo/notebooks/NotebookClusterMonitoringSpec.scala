@@ -33,9 +33,10 @@ class NotebookClusterMonitoringSpec extends FreeSpec with NotebookTestUtils with
           // cluster should have been created with the pet service account
           cluster.serviceAccountInfo.clusterServiceAccount shouldBe Some(petEmail)
           cluster.serviceAccountInfo.notebookServiceAccount shouldBe None
+          val clusterProjectAndName = ClusterProjectAndName(cluster.googleProject, cluster.clusterName)
 
           withWebDriver { implicit driver =>
-            withNewNotebook(cluster, PySpark2) { notebookPage =>
+            withNewNotebook(clusterProjectAndName, PySpark2) { notebookPage =>
               // should not have notebook credentials because Leo is not configured to use a notebook service account
               verifyNoNotebookCredentials(notebookPage)
             }
@@ -59,12 +60,14 @@ class NotebookClusterMonitoringSpec extends FreeSpec with NotebookTestUtils with
         // Create a cluster
 
         withNewCluster(project) { cluster =>
+          val clusterProjectAndName = ClusterProjectAndName(cluster.googleProject, cluster.clusterName)
+
           // cluster should have been created with the default cluster account
           cluster.serviceAccountInfo.clusterServiceAccount shouldBe None
           cluster.serviceAccountInfo.notebookServiceAccount shouldBe Some(petEmail)
 
           withWebDriver { implicit driver =>
-            withNewNotebook(cluster) { notebookPage =>
+            withNewNotebook(clusterProjectAndName) { notebookPage =>
               // should have notebook credentials
               verifyNotebookCredentials(notebookPage, petEmail)
             }
@@ -102,8 +105,10 @@ class NotebookClusterMonitoringSpec extends FreeSpec with NotebookTestUtils with
           )))
 
           withNewCluster(project, request = request) { cluster =>
+            val clusterProjectAndName = ClusterProjectAndName(cluster.googleProject, cluster.clusterName)
+
             withWebDriver { implicit driver =>
-              withNewNotebook(cluster, PySpark3) { notebookPage =>
+              withNewNotebook(clusterProjectAndName, PySpark3) { notebookPage =>
                 verifyHailImport(notebookPage, destPath, cluster)
               }
             }
@@ -117,10 +122,11 @@ class NotebookClusterMonitoringSpec extends FreeSpec with NotebookTestUtils with
         // Create a cluster
         withNewCluster(project, apiVersion = V2) { cluster =>
           val printStr = "Pause/resume test"
+          val clusterProjectAndName = ClusterProjectAndName(cluster.googleProject, cluster.clusterName)
 
           withWebDriver { implicit driver =>
             // Create a notebook and execute a cell
-            withNewNotebook(cluster, kernel = Python3) { notebookPage =>
+            withNewNotebook(clusterProjectAndName, kernel = Python3) { notebookPage =>
               notebookPage.executeCell(s"""print("$printStr")""") shouldBe Some(printStr)
               notebookPage.saveAndCheckpoint()
             }
@@ -234,9 +240,11 @@ class NotebookClusterMonitoringSpec extends FreeSpec with NotebookTestUtils with
           )))
 
           withNewCluster(project, request = request) { cluster =>
+            val clusterProjectAndName = ClusterProjectAndName(cluster.googleProject, cluster.clusterName)
+
             // Verify a Hail job uses preemptibles
             withWebDriver { implicit driver =>
-              withNewNotebook(cluster, PySpark3) { notebookPage =>
+              withNewNotebook(clusterProjectAndName, PySpark3) { notebookPage =>
                 verifyHailImport(notebookPage, destPath, cluster)
                 notebookPage.saveAndCheckpoint()
               }
@@ -249,7 +257,7 @@ class NotebookClusterMonitoringSpec extends FreeSpec with NotebookTestUtils with
 
               // Verify the Hail import again in a new notebook
               // Use a longer timeout than default because opening notebooks after resume can be slow
-              withNewNotebook(cluster, timeout = 10.minutes) { notebookPage =>
+              withNewNotebook(clusterProjectAndName, timeout = 10.minutes) { notebookPage =>
                 notebookPage.executeCell("sum(range(1,10))") shouldBe Some("45")
 
                 // TODO: Hail verification is disabled here because Spark sometimes doesn't restart correctly
@@ -276,8 +284,10 @@ class NotebookClusterMonitoringSpec extends FreeSpec with NotebookTestUtils with
         withResourceFileInBucket(project, translateExtensionFile, "application/x-gzip") { translateExtensionBucketPath =>
           val clusterName = ClusterName("user-jupyter-ext" + makeRandomId())
           withNewCluster(project, clusterName, ClusterRequest(Map(), Option(translateExtensionBucketPath.toUri), None)) { cluster =>
+            val clusterProjectAndName = ClusterProjectAndName(cluster.googleProject, cluster.clusterName)
+
             withWebDriver { implicit driver =>
-              withNewNotebook(cluster) { notebookPage =>
+              withNewNotebook(clusterProjectAndName) { notebookPage =>
                 notebookPage.executeCell("1 + 1") shouldBe Some("2")
                 //Check if the mark up was translated correctly
                 notebookPage.translateMarkup("Hello") should include("Bonjour")
@@ -295,8 +305,10 @@ class NotebookClusterMonitoringSpec extends FreeSpec with NotebookTestUtils with
           val clusterName = ClusterName("user-jupyter-ext" + makeRandomId())
           val extensionConfig = multiExtensionClusterRequest.copy(nbExtensions = multiExtensionClusterRequest.nbExtensions + ("translate" -> translateExtensionBucketPath.toUri))
           withNewCluster(project, clusterName, ClusterRequest(userJupyterExtensionConfig = Some(extensionConfig)), apiVersion = V2) { cluster =>
+            val clusterProjectAndName = ClusterProjectAndName(cluster.googleProject, cluster.clusterName)
+
             withWebDriver { implicit driver =>
-              withNewNotebook(cluster, Python3) { notebookPage =>
+              withNewNotebook(clusterProjectAndName, Python3) { notebookPage =>
                 //Check if the mark up was translated correctly
                 val nbExt = notebookPage.executeCell("! jupyter nbextension list")
                 nbExt.get should include("jupyter-gmaps/extension  enabled")
@@ -315,6 +327,8 @@ class NotebookClusterMonitoringSpec extends FreeSpec with NotebookTestUtils with
     "should localize/delocalize" taggedAs Tags.SmokeTest in {
       withProject { project => implicit token =>
         withNewCluster(project, request = ClusterRequest()) { cluster =>
+          val clusterProjectAndName = ClusterProjectAndName(cluster.googleProject, cluster.clusterName)
+
           withWebDriver { implicit driver =>
             // Check that localization works
             // See https://github.com/DataBiosphere/leonardo/issues/417, where installing JupyterLab
@@ -326,12 +340,12 @@ class NotebookClusterMonitoringSpec extends FreeSpec with NotebookTestUtils with
             val localizeDataFileName = "localize_data_aync.txt"
             val localizeDataContents = "Hello World"
 
-            withLocalizeDelocalizeFiles(cluster, localizeFileName, localizeFileContents, delocalizeFileName, delocalizeFileContents, localizeDataFileName, localizeDataContents) { (localizeRequest, bucketName, notebookPage) =>
+            withLocalizeDelocalizeFiles(clusterProjectAndName, localizeFileName, localizeFileContents, delocalizeFileName, delocalizeFileContents, localizeDataFileName, localizeDataContents) { (localizeRequest, bucketName, notebookPage) =>
               // call localize; this should return 200
               Notebook.localize(cluster.googleProject, cluster.clusterName, localizeRequest, async = false)
 
               // check that the files are immediately at their destinations
-              verifyLocalizeDelocalize(cluster, localizeFileName, localizeFileContents, GcsPath(bucketName, GcsObjectName(delocalizeFileName)), delocalizeFileContents, localizeDataFileName, localizeDataContents)
+              verifyLocalizeDelocalize(clusterProjectAndName, localizeFileName, localizeFileContents, GcsPath(bucketName, GcsObjectName(delocalizeFileName)), delocalizeFileContents, localizeDataFileName, localizeDataContents)
             }
           }
         }
@@ -341,8 +355,10 @@ class NotebookClusterMonitoringSpec extends FreeSpec with NotebookTestUtils with
     "should give cluster user-specified scopes" taggedAs Tags.SmokeTest in {
       withProject { project => implicit token =>
         withNewCluster(project, request = ClusterRequest(scopes = Some(Set("https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/source.read_only")))) { cluster =>
+          val clusterProjectAndName = ClusterProjectAndName(cluster.googleProject, cluster.clusterName)
+
           withWebDriver { implicit driver =>
-            withNewNotebook(cluster) { notebookPage =>
+            withNewNotebook(clusterProjectAndName) { notebookPage =>
               val query = """! bq query --disable_ssl_validation --format=json "SELECT COUNT(*) AS scullion_count FROM publicdata.samples.shakespeare WHERE word='scullion'" """
 
               val result = notebookPage.executeCell(query, timeout = 5.minutes).get
@@ -361,9 +377,11 @@ class NotebookClusterMonitoringSpec extends FreeSpec with NotebookTestUtils with
           withResourceFileInBucket(project, enablePdfDownloadScript, "text/plain") { bucketPath =>
             val clusterName = ClusterName("user-script-cluster" + makeRandomId())
             withNewCluster(project, clusterName, ClusterRequest(Map(), None, Option(bucketPath.toUri)), apiVersion = V2) { cluster =>
+              val clusterProjectAndName = ClusterProjectAndName(cluster.googleProject, cluster.clusterName)
+
               val download = createDownloadDirectory()
               withWebDriver(download) { implicit driver =>
-                withNewNotebook(cluster) { notebookPage =>
+                withNewNotebook(clusterProjectAndName) { notebookPage =>
                   notebookPage.executeCell("1+1") shouldBe Some("2")
                   notebookPage.downloadAsPdf()
                   val notebookName = notebookPage.currentUrl.substring(notebookPage.currentUrl.lastIndexOf('/') + 1, notebookPage.currentUrl.lastIndexOf('?')).replace(".ipynb", ".pdf")

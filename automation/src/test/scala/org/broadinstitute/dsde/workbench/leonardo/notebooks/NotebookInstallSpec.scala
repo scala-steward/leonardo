@@ -1,6 +1,6 @@
 package org.broadinstitute.dsde.workbench.leonardo.notebooks
 
-import org.broadinstitute.dsde.workbench.leonardo.ClusterFixtureSpec
+import org.broadinstitute.dsde.workbench.leonardo.{ClusterFixtureSpec, ClusterProjectAndName}
 
 import scala.language.postfixOps
 
@@ -10,7 +10,9 @@ class NotebookInstallSpec extends ClusterFixtureSpec with NotebookTestUtils {
 
     "should create a notebook with a working Python 3 kernel and import installed packages" in { clusterFixture =>
       withWebDriver { implicit driver =>
-        withNewNotebook(clusterFixture.cluster, Python3) { notebookPage =>
+        val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
+        withNewNotebook(clusterProjectAndName, Python3) { notebookPage =>
           val getPythonVersion =
             """import platform
               |print(platform.python_version())""".stripMargin
@@ -29,9 +31,11 @@ class NotebookInstallSpec extends ClusterFixtureSpec with NotebookTestUtils {
     // "should allow importing a package that requires a user script that IS installed"
     // to verify that we can only import 'arrow' with the user script specified in that test
     "should error importing a package that requires an uninstalled user script" in { clusterFixture =>
+      val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
       withWebDriver { implicit driver =>
         //a cluster without the user script should not be able to import the arrow library
-        withNewNotebook(clusterFixture.cluster) { notebookPage =>
+        withNewNotebook(clusterProjectAndName) { notebookPage =>
           notebookPage.executeCell("""print 'Hello Notebook!'""") shouldBe Some("Hello Notebook!")
           notebookPage.executeCell("""import arrow""").get should include("ImportError: No module named arrow")
         }
@@ -48,8 +52,10 @@ class NotebookInstallSpec extends ClusterFixtureSpec with NotebookTestUtils {
 
     Seq(Python2, Python3).foreach { kernel =>
       s"should be able to pip install packages using ${kernel.string}" in { clusterFixture =>
+        val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
         withWebDriver { implicit driver =>
-          withNewNotebook(clusterFixture.cluster, kernel) { notebookPage =>
+          withNewNotebook(clusterProjectAndName, kernel) { notebookPage =>
             // install a package that is not installed by default
             pipInstall(notebookPage, kernel, "fuzzywuzzy")
             notebookPage.saveAndCheckpoint()
@@ -58,15 +64,17 @@ class NotebookInstallSpec extends ClusterFixtureSpec with NotebookTestUtils {
 
         withWebDriver { implicit driver =>
           // need to restart the kernel for the install to take effect
-          withNewNotebook(clusterFixture.cluster, kernel) { notebookPage =>
+          withNewNotebook(clusterProjectAndName, kernel) { notebookPage =>
             notebookPage.executeCell("import fuzzywuzzy").getOrElse("") should not include("ModuleNotFoundError")
           }
         }
       }
 
       s"should NOT be able to run Spark using ${kernel.string}" in { clusterFixture =>
+        val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
         withWebDriver { implicit driver =>
-          withNewNotebook(clusterFixture.cluster, kernel) { notebookPage =>
+          withNewNotebook(clusterProjectAndName, kernel) { notebookPage =>
             // As proof of not having Spark installed:
             // We should get an error upon attempting to access the SparkContext object 'sc'
             // since Python kernels do not include Spark installation.
@@ -78,16 +86,20 @@ class NotebookInstallSpec extends ClusterFixtureSpec with NotebookTestUtils {
     }
 
     "should install Table of Content from jupyter_contrib_nbextensions" in { clusterFixture =>
+      val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
       withWebDriver { implicit driver =>
-        withNewNotebook(clusterFixture.cluster) { notebookPage =>
+        withNewNotebook(clusterProjectAndName) { notebookPage =>
           notebookPage.executeCell("! jupyter nbextension list").get should include("toc2/main  enabled")
         }
       }
     }
 
     "should install and enable nbextensions_configurator" in { clusterFixture =>
+      val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
       withWebDriver { implicit driver =>
-        withNewNotebook(clusterFixture.cluster) { notebookPage =>
+        withNewNotebook(clusterProjectAndName) { notebookPage =>
           notebookPage.executeCell("! jupyter serverextension list ").get should include("jupyter_nbextensions_configurator  enabled")
         }
       }

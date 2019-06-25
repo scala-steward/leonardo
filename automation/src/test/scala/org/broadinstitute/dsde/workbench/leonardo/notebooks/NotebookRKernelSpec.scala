@@ -1,6 +1,6 @@
 package org.broadinstitute.dsde.workbench.leonardo.notebooks
 
-import org.broadinstitute.dsde.workbench.leonardo.ClusterFixtureSpec
+import org.broadinstitute.dsde.workbench.leonardo.{ClusterFixtureSpec, ClusterProjectAndName}
 import org.broadinstitute.dsde.workbench.service.util.Tags
 
 import scala.concurrent.duration._
@@ -12,9 +12,10 @@ class NotebookRKernelSpec extends ClusterFixtureSpec with NotebookTestUtils {
 
     // See https://github.com/DataBiosphere/leonardo/issues/398
     "should use UTF-8 encoding" in { clusterFixture =>
+      val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
 
       withWebDriver { implicit driver =>
-        withNewNotebook(clusterFixture.cluster, RKernel) { notebookPage =>
+        withNewNotebook(clusterProjectAndName, RKernel) { notebookPage =>
           // Check the locale is set to en_US.UTF-8
           notebookPage.executeCell("""Sys.getenv("LC_ALL")""") shouldBe Some("'en_US.UTF-8'")
 
@@ -38,8 +39,10 @@ class NotebookRKernelSpec extends ClusterFixtureSpec with NotebookTestUtils {
     // https://cloud.google.com/dataproc/docs/concepts/versioning/dataproc-release-1.2.
     // Opening a Google ticket and temporarily ignoring this test.
     "should create a notebook with a working R kernel and import installed packages" ignore { clusterFixture =>
+      val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
       withWebDriver { implicit driver =>
-        withNewNotebook(clusterFixture.cluster, RKernel) { notebookPage =>
+        withNewNotebook(clusterProjectAndName, RKernel) { notebookPage =>
           notebookPage.executeCell("library(SparkR)").get should include("SparkR")
           notebookPage.executeCell("sparkR.session()")
           notebookPage.executeCell("df <- as.DataFrame(faithful)")
@@ -63,7 +66,9 @@ class NotebookRKernelSpec extends ClusterFixtureSpec with NotebookTestUtils {
 
     "should be able to install new R packages" taggedAs Tags.SmokeTest in { clusterFixture =>
       withWebDriver { implicit driver =>
-        withNewNotebook(clusterFixture.cluster, RKernel) { notebookPage =>
+        val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
+        withNewNotebook(clusterProjectAndName, RKernel) { notebookPage =>
           // httr is a simple http library for R
           // http://httr.r-lib.org//index.html
 
@@ -88,8 +93,10 @@ class NotebookRKernelSpec extends ClusterFixtureSpec with NotebookTestUtils {
 
     // See https://github.com/DataBiosphere/leonardo/issues/398
     "should be able to install mlr" in { clusterFixture =>
+      val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
       withWebDriver { implicit driver =>
-        withNewNotebook(clusterFixture.cluster, RKernel) { notebookPage =>
+        withNewNotebook(clusterProjectAndName, RKernel) { notebookPage =>
           // mlr: machine learning in R
           // https://github.com/mlr-org/mlr
 
@@ -109,16 +116,20 @@ class NotebookRKernelSpec extends ClusterFixtureSpec with NotebookTestUtils {
     }
 
     "should have tidyverse automatically installed" in { clusterFixture =>
+      val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
       withWebDriver { implicit driver =>
-        withNewNotebook(clusterFixture.cluster, RKernel) { notebookPage =>
+        withNewNotebook(clusterProjectAndName, RKernel) { notebookPage =>
           notebookPage.executeCell(""""tidyverse" %in% installed.packages()""") shouldBe Some("TRUE")
         }
       }
     }
 
     "should have Ronaldo automatically installed" in { clusterFixture =>
+      val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
       withWebDriver { implicit driver =>
-        withNewNotebook(clusterFixture.cluster, RKernel) { notebookPage =>
+        withNewNotebook(clusterProjectAndName, RKernel) { notebookPage =>
           notebookPage.executeCell(""""Ronaldo" %in% installed.packages()""") shouldBe Some("TRUE")
         }
       }
@@ -126,8 +137,10 @@ class NotebookRKernelSpec extends ClusterFixtureSpec with NotebookTestUtils {
 
     // See https://github.com/DataBiosphere/leonardo/issues/710
     "should be able to install packages that depend on gfortran" in { clusterFixture =>
+      val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
       withWebDriver { implicit driver =>
-        withNewNotebook(clusterFixture.cluster, RKernel) { notebookPage =>
+        withNewNotebook(clusterProjectAndName, RKernel) { notebookPage =>
           val installTimeout = 5.minutes
 
           val installOutput = notebookPage.executeCell("""install.packages('qwraps2')""", installTimeout)
@@ -141,8 +154,10 @@ class NotebookRKernelSpec extends ClusterFixtureSpec with NotebookTestUtils {
     }
 
     s"should have the workspace-related environment variables set" in { clusterFixture =>
+      val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
       withWebDriver { implicit driver =>
-        withNewNotebook(clusterFixture.cluster, RKernel) { notebookPage =>
+        withNewNotebook(clusterProjectAndName, RKernel) { notebookPage =>
           notebookPage.executeCell("Sys.getenv('GOOGLE_PROJECT')").get shouldBe s"'${clusterFixture.billingProject.value}'"
           notebookPage.executeCell("Sys.getenv('WORKSPACE_NAMESPACE')").get shouldBe s"'${clusterFixture.billingProject.value}'"
           notebookPage.executeCell("Sys.getenv('WORKSPACE_NAME')").get shouldBe "'jupyter-user'"

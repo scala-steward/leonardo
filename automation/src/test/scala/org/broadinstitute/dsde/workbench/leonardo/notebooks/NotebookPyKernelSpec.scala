@@ -1,6 +1,6 @@
 package org.broadinstitute.dsde.workbench.leonardo.notebooks
 
-import org.broadinstitute.dsde.workbench.leonardo.{ClusterFixtureSpec, Leonardo}
+import org.broadinstitute.dsde.workbench.leonardo.{ClusterFixtureSpec, ClusterProjectAndName, Leonardo}
 import org.broadinstitute.dsde.workbench.service.Orchestration
 import org.broadinstitute.dsde.workbench.service.util.Tags
 
@@ -13,7 +13,9 @@ class NotebookPyKernelSpec extends ClusterFixtureSpec with NotebookTestUtils {
 
     "should open the notebooks list page" in { clusterFixture =>
       withWebDriver { implicit driver =>
-        withNotebooksListPage(clusterFixture.cluster) { notebooksListPage =>
+        val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
+        withNotebooksListPage(clusterProjectAndName) { notebooksListPage =>
           // noop just verify that it opens
         }
       }
@@ -35,8 +37,10 @@ class NotebookPyKernelSpec extends ClusterFixtureSpec with NotebookTestUtils {
     }
 
     "should execute cells" taggedAs Tags.SmokeTest in { clusterFixture =>
+      val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
       withWebDriver { implicit driver =>
-        withNewNotebook(clusterFixture.cluster) { notebookPage =>
+        withNewNotebook(clusterProjectAndName) { notebookPage =>
           notebookPage.executeCell("1+1") shouldBe Some("2")
           notebookPage.executeCell("2*3") shouldBe Some("6")
           notebookPage.executeCell("""print 'Hello Notebook!'""") shouldBe Some("Hello Notebook!")
@@ -53,11 +57,13 @@ class NotebookPyKernelSpec extends ClusterFixtureSpec with NotebookTestUtils {
 
     // we have to disable SSL validation for BigQuery to work on the command line. this is not ideal, so should be resolved as soon as possible
     "should allow BigQuerying in a new billing project" in { clusterFixture =>
+      val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
       // project owners have the bigquery role automatically, so this also tests granting it to users
       val ownerToken = hermioneAuthToken
       Orchestration.billing.addGoogleRoleToBillingProjectUser(clusterFixture.billingProject.value, ronEmail, "bigquery.jobUser")(ownerToken)
       withWebDriver { implicit driver =>
-        withNewNotebook(clusterFixture.cluster) { notebookPage =>
+        withNewNotebook(clusterProjectAndName) { notebookPage =>
           val query = """! bq query --disable_ssl_validation --format=json "SELECT COUNT(*) AS scullion_count FROM publicdata.samples.shakespeare WHERE word='scullion'" """
           val expectedResult = """[{"scullion_count":"2"}]""".stripMargin
 
@@ -69,6 +75,8 @@ class NotebookPyKernelSpec extends ClusterFixtureSpec with NotebookTestUtils {
     }
 
     "should allow BigQuerying through python" taggedAs Tags.SmokeTest in { clusterFixture =>
+      val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
       val query = """"SELECT
                     |CONCAT(
                     |'https://stackoverflow.com/questions/',
@@ -87,7 +95,7 @@ class NotebookPyKernelSpec extends ClusterFixtureSpec with NotebookTestUtils {
                         |results = query_job.result()""".stripMargin
 
       withWebDriver { implicit driver =>
-        withNewNotebook(clusterFixture.cluster) { notebookPage =>
+        withNewNotebook(clusterProjectAndName) { notebookPage =>
           notebookPage.executeCell(bigQuery) shouldBe None
           notebookPage.executeCell("print(results)").get should include("google.cloud.bigquery.table.RowIterator object")
         }
@@ -96,7 +104,9 @@ class NotebookPyKernelSpec extends ClusterFixtureSpec with NotebookTestUtils {
 
     "should update dateAccessed if the notebook is open" in { clusterFixture =>
       withWebDriver { implicit driver =>
-        withNewNotebook(clusterFixture.cluster) { notebookPage =>
+        val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
+        withNewNotebook(clusterProjectAndName) { notebookPage =>
           val firstApiCall = Leonardo.cluster.get(clusterFixture.billingProject, clusterFixture.cluster.clusterName)
           //Sleeping for 90s to simulate idle notebook
           logger.info("Sleeping for 90s to simulate idle notebook")
@@ -110,8 +120,10 @@ class NotebookPyKernelSpec extends ClusterFixtureSpec with NotebookTestUtils {
 
     Seq(Python2, Python3).foreach { kernel =>
       s"should preinstall google cloud subpackages for ${kernel.string}" in { clusterFixture =>
+        val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
         withWebDriver { implicit driver =>
-          withNewNotebook(clusterFixture.cluster, kernel) { notebookPage =>
+          withNewNotebook(clusterProjectAndName, kernel) { notebookPage =>
             //all other packages cannot be tested for their versions in this manner
             //warnings are ignored because they are benign warnings that show up for python2 because of compilation against an older numpy
             notebookPage.executeCell("import warnings; warnings.simplefilter('ignore')\nfrom google.cloud import bigquery\nprint(bigquery.__version__)") shouldBe Some("1.7.0")
@@ -125,8 +137,10 @@ class NotebookPyKernelSpec extends ClusterFixtureSpec with NotebookTestUtils {
     // https://github.com/DataBiosphere/leonardo/issues/797
     Seq(Python2, Python3).foreach { kernel =>
       s"should be able to import ggplot for ${kernel.toString}" in { clusterFixture =>
+        val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
         withWebDriver { implicit driver =>
-          withNewNotebook(clusterFixture.cluster, kernel) { notebookPage =>
+          withNewNotebook(clusterProjectAndName, kernel) { notebookPage =>
             notebookPage.executeCell("from ggplot import *").get should not include ("ImportError")
             notebookPage.executeCell("ggplot") shouldBe Some("ggplot.ggplot.ggplot")
           }
@@ -136,8 +150,10 @@ class NotebookPyKernelSpec extends ClusterFixtureSpec with NotebookTestUtils {
 
     Seq(Python2, Python3).foreach { kernel =>
       s"should have the workspace-related environment variables set in ${kernel.toString} kernel" in { clusterFixture =>
+        val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
         withWebDriver { implicit driver =>
-          withNewNotebook(clusterFixture.cluster, kernel) { notebookPage =>
+          withNewNotebook(clusterProjectAndName, kernel) { notebookPage =>
             notebookPage.executeCell("! echo $GOOGLE_PROJECT").get shouldBe clusterFixture.billingProject.value
             notebookPage.executeCell("! echo $WORKSPACE_NAMESPACE").get shouldBe clusterFixture.billingProject.value
             notebookPage.executeCell("! echo $WORKSPACE_NAME").get shouldBe "jupyter-user"
@@ -150,8 +166,10 @@ class NotebookPyKernelSpec extends ClusterFixtureSpec with NotebookTestUtils {
 
     // https://github.com/DataBiosphere/leonardo/issues/891
     "should be able to install python libraries with C bindings" in { clusterFixture =>
+      val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
       withWebDriver { implicit driver =>
-        withNewNotebook(clusterFixture.cluster, Python3) { notebookPage =>
+        withNewNotebook(clusterProjectAndName, Python3) { notebookPage =>
           notebookPage.executeCell("! pip install Cython").get should include ("Successfully installed Cython")
           notebookPage.executeCell("! pip install POT").get should include ("Successfully installed POT")
         }

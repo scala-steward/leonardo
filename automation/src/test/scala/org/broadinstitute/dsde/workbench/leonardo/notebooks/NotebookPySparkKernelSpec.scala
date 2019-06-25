@@ -1,6 +1,6 @@
 package org.broadinstitute.dsde.workbench.leonardo.notebooks
 
-import org.broadinstitute.dsde.workbench.leonardo.ClusterFixtureSpec
+import org.broadinstitute.dsde.workbench.leonardo.{ClusterFixtureSpec, ClusterProjectAndName}
 
 import scala.language.postfixOps
 
@@ -23,8 +23,10 @@ class NotebookPySparkKernelSpec extends ClusterFixtureSpec with NotebookTestUtil
     Seq(PySpark2, PySpark3).foreach { kernel =>
 
       s"should be able to run a Spark job with a ${kernel.string} kernel" in { clusterFixture =>
+        val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
         withWebDriver { implicit driver =>
-          withNewNotebook(clusterFixture.cluster, kernel) { notebookPage =>
+          withNewNotebook(clusterProjectAndName, kernel) { notebookPage =>
             val cellResult = notebookPage.executeCell(sparkJobToSucceed).get
             cellResult should include("Pi is roughly ")
             cellResult.toLowerCase should not include "error"

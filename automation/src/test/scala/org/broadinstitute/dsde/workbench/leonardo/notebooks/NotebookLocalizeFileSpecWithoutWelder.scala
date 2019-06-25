@@ -1,7 +1,7 @@
 package org.broadinstitute.dsde.workbench.leonardo.notebooks
 
 import org.broadinstitute.dsde.workbench.dao.Google.googleStorageDAO
-import org.broadinstitute.dsde.workbench.leonardo.ClusterFixtureSpec
+import org.broadinstitute.dsde.workbench.leonardo.{ClusterFixtureSpec, ClusterProjectAndName}
 import org.broadinstitute.dsde.workbench.model.google.{GcsObjectName, GcsPath}
 import org.broadinstitute.dsde.workbench.service.RestException
 import org.broadinstitute.dsde.workbench.service.util.Tags
@@ -9,7 +9,7 @@ import org.broadinstitute.dsde.workbench.service.util.Tags
 import scala.language.postfixOps
 
 
-class NotebookLocalizeFileSpec extends ClusterFixtureSpec with NotebookTestUtils {
+class NotebookLocalizeFileSpecWithoutWelder extends ClusterFixtureSpec with NotebookTestUtils {
 
 
   "Leonardo notebooks" - {
@@ -23,24 +23,25 @@ class NotebookLocalizeFileSpec extends ClusterFixtureSpec with NotebookTestUtils
       val localizeDataContents = "Hello World"
 
       withWebDriver { implicit driver =>
-        val cluster = clusterFixture.cluster
-        withLocalizeDelocalizeFiles(cluster, localizeFileName, localizeFileContents, delocalizeFileName, delocalizeFileContents, localizeDataFileName, localizeDataContents) { (localizeRequest, bucketName, notebookPage) =>
+        val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
+        withLocalizeDelocalizeFiles(clusterProjectAndName, localizeFileName, localizeFileContents, delocalizeFileName, delocalizeFileContents, localizeDataFileName, localizeDataContents) { (localizeRequest, bucketName, notebookPage) =>
           // call localize; this should return 200
-          Notebook.localize(cluster.googleProject, cluster.clusterName, localizeRequest, async = true)
+          Notebook.localize(clusterProjectAndName.googleProject, clusterProjectAndName.clusterName, localizeRequest, async = true)
 
           // check that the files are eventually at their destinations
           implicit val patienceConfig: PatienceConfig = localizePatience
           eventually {
-            verifyLocalizeDelocalize(cluster, localizeFileName, localizeFileContents, GcsPath(bucketName, GcsObjectName(delocalizeFileName)), delocalizeFileContents, localizeDataFileName, localizeDataContents)
+            verifyLocalizeDelocalize(clusterProjectAndName, localizeFileName, localizeFileContents, GcsPath(bucketName, GcsObjectName(delocalizeFileName)), delocalizeFileContents, localizeDataFileName, localizeDataContents)
           }
 
           // call localize again with bad data. This should still return 200 since we're in async mode.
           val badLocalize = Map("file.out" -> "gs://nobuckethere")
-          Notebook.localize(cluster.googleProject, cluster.clusterName, badLocalize, async = true)
+          Notebook.localize(clusterProjectAndName.googleProject, clusterProjectAndName.clusterName, badLocalize, async = true)
 
           // it should not have localized this file
           val thrown = the[RestException] thrownBy {
-            Notebook.getContentItem(cluster.googleProject, cluster.clusterName, "file.out", includeContent = false)
+            Notebook.getContentItem(clusterProjectAndName.googleProject, clusterProjectAndName.clusterName, "file.out", includeContent = false)
           }
           // why doesn't `RestException` have a status code field?
           thrown.message should include("No such file or directory: file.out")
@@ -57,18 +58,18 @@ class NotebookLocalizeFileSpec extends ClusterFixtureSpec with NotebookTestUtils
       val localizeDataContents = "Hello World"
 
       withWebDriver { implicit driver =>
-        val cluster = clusterFixture.cluster
-        withLocalizeDelocalizeFiles(cluster, localizeFileName, localizeFileContents, delocalizeFileName, delocalizeFileContents, localizeDataFileName, localizeDataContents) { (localizeRequest, bucketName, notebookPage) =>
+        val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+        withLocalizeDelocalizeFiles(clusterProjectAndName, localizeFileName, localizeFileContents, delocalizeFileName, delocalizeFileContents, localizeDataFileName, localizeDataContents) { (localizeRequest, bucketName, notebookPage) =>
           // call localize; this should return 200
-          Notebook.localize(cluster.googleProject, cluster.clusterName, localizeRequest, async = false)
+          Notebook.localize(clusterProjectAndName.googleProject, clusterProjectAndName.clusterName, localizeRequest, async = false)
 
           // check that the files are immediately at their destinations
-          verifyLocalizeDelocalize(cluster, localizeFileName, localizeFileContents, GcsPath(bucketName, GcsObjectName(delocalizeFileName)), delocalizeFileContents, localizeDataFileName, localizeDataContents)
+          verifyLocalizeDelocalize(clusterProjectAndName, localizeFileName, localizeFileContents, GcsPath(bucketName, GcsObjectName(delocalizeFileName)), delocalizeFileContents, localizeDataFileName, localizeDataContents)
 
           // call localize again with bad data. This should still return 500 since we're in sync mode.
           val badLocalize = Map("file.out" -> "gs://nobuckethere")
           val thrown = the[RestException] thrownBy {
-            Notebook.localize(cluster.googleProject, cluster.clusterName, badLocalize, async = false)
+            Notebook.localize(clusterProjectAndName.googleProject, clusterProjectAndName.clusterName, badLocalize, async = false)
           }
           // why doesn't `RestException` have a status code field?
           thrown.message should include("500 : Internal Server Error")
@@ -77,7 +78,7 @@ class NotebookLocalizeFileSpec extends ClusterFixtureSpec with NotebookTestUtils
 
           // it should not have localized this file
           val contentThrown = the[RestException] thrownBy {
-            Notebook.getContentItem(cluster.googleProject, cluster.clusterName, "file.out", includeContent = false)
+            Notebook.getContentItem(clusterProjectAndName.googleProject, clusterProjectAndName.clusterName, "file.out", includeContent = false)
           }
           contentThrown.message should include("No such file or directory: file.out")
         }
@@ -93,10 +94,10 @@ class NotebookLocalizeFileSpec extends ClusterFixtureSpec with NotebookTestUtils
       val localizeDataContents = "Localize data"
 
       withWebDriver { implicit driver =>
-        val cluster = clusterFixture.cluster
-        withLocalizeDelocalizeFiles(cluster, localizeFileName, localizeFileContents, delocalizeFileName, delocalizeFileContents, localizeDataFileName, localizeDataContents) { (localizeRequest, bucketName, notebookPage) =>
+        val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+        withLocalizeDelocalizeFiles(clusterProjectAndName, localizeFileName, localizeFileContents, delocalizeFileName, delocalizeFileContents, localizeDataFileName, localizeDataContents) { (localizeRequest, bucketName, notebookPage) =>
           // call localize; this should return 200
-          Notebook.localize(cluster.googleProject, cluster.clusterName, localizeRequest, async = false)
+          Notebook.localize(clusterProjectAndName.googleProject, clusterProjectAndName.clusterName, localizeRequest, async = false)
 
           // check that the files are at their destinations
           implicit val patienceConfig: PatienceConfig = storagePatience

@@ -20,8 +20,10 @@ abstract class ClusterFixtureSpec extends fixture.FreeSpec with BeforeAndAfterAl
 
   implicit val ronToken: AuthToken = ronAuthToken
   var claimedBillingProject: ClaimedProject = _
-  var billingProject : GoogleProject = _
+  var billingProject : GoogleProject = GoogleProject("gpalloc-dev-master-5bqdytm")
   var ronCluster: Cluster = _
+
+  def enableWelder: Boolean = false
 
   /**
     * See
@@ -77,11 +79,13 @@ abstract class ClusterFixtureSpec extends fixture.FreeSpec with BeforeAndAfterAl
     * Create new cluster by Ron with all default settings
     */
   def createRonCluster(): Unit = {
-    Orchestration.billing.addUserToBillingProject(billingProject.value, ronEmail, Orchestration.billing.BillingProjectRole.User)(hermioneAuthToken)
+//    Orchestration.billing.addUserToBillingProject(billingProject.value, ronEmail, Orchestration.billing.BillingProjectRole.User)(hermioneAuthToken)
     val highMemClusterRequest = ClusterRequest(machineConfig = Option(MachineConfig(
       masterMachineType = Option("n1-standard-8"),
       workerMachineType = Option("n1-standard-8")
-    )))
+    )),
+      enableWelder = enableWelder
+    )
     Try (createNewCluster(billingProject, request = highMemClusterRequest)(ronAuthToken)) match {
       case Success(outcome) =>
         ronCluster = outcome
@@ -103,14 +107,14 @@ abstract class ClusterFixtureSpec extends fixture.FreeSpec with BeforeAndAfterAl
   override def beforeAll(): Unit = {
     logger.info("beforeAll")
     super.beforeAll()
-    claimBillingProject()
-    createRonCluster()
+//    claimBillingProject()
+//    createRonCluster()
   }
 
   override def afterAll(): Unit = {
-    logger.info("afterAll")
-    deleteRonCluster()
-    unclaimBillingProject()
+//    logger.info("afterAll")
+//    deleteRonCluster()
+//    unclaimBillingProject()
     super.afterAll()
   }
 

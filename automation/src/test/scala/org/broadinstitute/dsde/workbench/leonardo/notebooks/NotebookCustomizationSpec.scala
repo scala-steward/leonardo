@@ -4,7 +4,7 @@ import org.broadinstitute.dsde.workbench.ResourceFile
 import org.broadinstitute.dsde.workbench.dao.Google.googleStorageDAO
 import org.broadinstitute.dsde.workbench.fixture.BillingFixtures
 import org.broadinstitute.dsde.workbench.leonardo.Leonardo.ApiVersion.V2
-import org.broadinstitute.dsde.workbench.leonardo.{ClusterRequest, UserJupyterExtensionConfig}
+import org.broadinstitute.dsde.workbench.leonardo.{ClusterProjectAndName, ClusterRequest, UserJupyterExtensionConfig}
 import org.broadinstitute.dsde.workbench.model.google.{EmailGcsEntity, GcsEntityTypes, GcsObjectName, GcsRoles}
 import org.broadinstitute.dsde.workbench.service.Sam
 import org.broadinstitute.dsde.workbench.service.util.Tags
@@ -46,9 +46,11 @@ final class NotebookCustomizationSpec extends FreeSpec
 
             val clusterRequestWithUserScript = ClusterRequest(Map(), None, Option(userScriptUri))
             withNewCluster(project, request = clusterRequestWithUserScript, apiVersion = V2) { cluster =>
+              val clusterProjectAndName = ClusterProjectAndName(cluster.googleProject, cluster.clusterName)
+
               Thread.sleep(10000)
               withWebDriver { implicit driver =>
-                withNewNotebook(cluster) { notebookPage =>
+                withNewNotebook(clusterProjectAndName) { notebookPage =>
                   notebookPage.executeCell("""print 'Hello Notebook!'""") shouldBe Some("Hello Notebook!")
                   notebookPage.executeCell("""import arrow""")
                   notebookPage.executeCell("""arrow.get(727070400)""") shouldBe Some("<Arrow [1993-01-15T04:00:00+00:00]>")
@@ -69,8 +71,10 @@ final class NotebookCustomizationSpec extends FreeSpec
         withResourceFileInBucket(project, translateExtensionFile, "application/x-gzip") { translateExtensionBucketPath =>
           val clusterRequestWithExtension = ClusterRequest(Map(), Option(translateExtensionBucketPath.toUri), None)
           withNewCluster(project, request = clusterRequestWithExtension) { cluster =>
+            val clusterProjectAndName = ClusterProjectAndName(cluster.googleProject, cluster.clusterName)
+
             withWebDriver { implicit driver =>
-              withNewNotebook(cluster) { notebookPage =>
+              withNewNotebook(clusterProjectAndName) { notebookPage =>
                 notebookPage.executeCell("1 + 1") shouldBe Some("2")
                 //Check if the mark up was translated correctly
                 notebookPage.translateMarkup("Hello") should include("Bonjour")
@@ -84,8 +88,10 @@ final class NotebookCustomizationSpec extends FreeSpec
     "should install user specified lab extensions" in {
       withProject { project => implicit token =>
         withNewCluster(project, request = ClusterRequest(userJupyterExtensionConfig = Some(UserJupyterExtensionConfig(labExtensions = Map("jupyterlab-toc" -> "@jupyterlab/toc"))))) { cluster =>
+          val clusterProjectAndName = ClusterProjectAndName(cluster.googleProject, cluster.clusterName)
+
           withWebDriver { implicit driver =>
-            withNewNotebook(cluster) { notebookPage =>
+            withNewNotebook(clusterProjectAndName) { notebookPage =>
               val query = """!jupyter labextension list"""
               val result = notebookPage.executeCell(query).get
               result should include("@jupyterlab/toc")
@@ -98,8 +104,10 @@ final class NotebookCustomizationSpec extends FreeSpec
     "should allow users to install extensions after cluster creation" in {
       withProject { project => implicit token =>
         withNewCluster(project) { cluster =>
+          val clusterProjectAndName = ClusterProjectAndName(cluster.googleProject, cluster.clusterName)
+
           withWebDriver { implicit driver =>
-            withNewNotebook(cluster) { notebookPage =>
+            withNewNotebook(clusterProjectAndName) { notebookPage =>
               val query = """!jupyter labextension install @jupyterlab/toc"""
               val result = notebookPage.executeCell(query, timeout = 5.minutes).get
               result should not include("Permission denied")
@@ -115,8 +123,10 @@ final class NotebookCustomizationSpec extends FreeSpec
         withResourceFileInBucket(project, exampleLabExtensionFile, "text/plain") { exampleLabExtensionBucketPath =>
           val clusterRequestWithLabExtension = ClusterRequest(userJupyterExtensionConfig = Some(UserJupyterExtensionConfig(labExtensions = Map("example_lab_extension" -> exampleLabExtensionBucketPath.toUri))))
           withNewCluster(project, request = clusterRequestWithLabExtension) { cluster =>
+            val clusterProjectAndName = ClusterProjectAndName(cluster.googleProject, cluster.clusterName)
+
             withWebDriver { implicit driver =>
-              withNewNotebook(cluster) { notebookPage =>
+              withNewNotebook(clusterProjectAndName) { notebookPage =>
                 notebookPage.executeCell("!jupyter labextension list").get should include("example_lab_extension")
               }
             }

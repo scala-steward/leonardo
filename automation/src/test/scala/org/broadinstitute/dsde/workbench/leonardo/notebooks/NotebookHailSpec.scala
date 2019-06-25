@@ -3,7 +3,7 @@ package org.broadinstitute.dsde.workbench.leonardo.notebooks
 import java.nio.file.Files
 
 import org.broadinstitute.dsde.workbench.ResourceFile
-import org.broadinstitute.dsde.workbench.leonardo.ClusterFixtureSpec
+import org.broadinstitute.dsde.workbench.leonardo.{ClusterFixtureSpec, ClusterProjectAndName}
 import org.broadinstitute.dsde.workbench.service.util.Tags
 
 import scala.collection.JavaConverters._
@@ -33,8 +33,10 @@ class NotebookHailSpec extends ClusterFixtureSpec with NotebookTestUtils {
     }
 
     "should install the right Hail version" taggedAs Tags.SmokeTest in { clusterFixture =>
+      val clusterProjectAndName = ClusterProjectAndName(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
+
       withWebDriver { implicit driver =>
-        withNewNotebook(clusterFixture.cluster, PySpark3) { notebookPage =>
+        withNewNotebook(clusterProjectAndName, PySpark3) { notebookPage =>
           val importHail =
             """import hail as hl
               |hl.init(sc)
