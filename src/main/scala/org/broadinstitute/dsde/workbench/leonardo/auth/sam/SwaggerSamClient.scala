@@ -115,18 +115,18 @@ class SwaggerSamClient(samBasePath: String, cacheEnabled: Boolean, cacheExpiryTi
     credential.refreshAccessToken.getTokenValue
   }
 
-  def createNotebookClusterResource(userEmail: WorkbenchEmail, googleProject: GoogleProject, clusterName: ClusterName) = {
-    logger.debug(s"Calling Sam createNotebookClusterResource as PET for user [${userEmail.value}] with project [${googleProject.value}] and clusterName [${clusterName.value}]")
+  def createNotebookClusterResource(userEmail: WorkbenchEmail, googleProject: GoogleProject, clusterName: ClusterName, internalId: String) = {
+    logger.debug(s"Calling Sam createNotebookClusterResource as PET for user [${userEmail.value}] with project [${googleProject.value}] and clusterName [${clusterName.value}]. Resource ID is [$internalId].")
     // this is called as the user's pet
     val samAPI = samResourcesApiAsPet(userEmail, googleProject)
-    samAPI.createResource(notebookClusterResourceTypeName, getClusterResourceId(googleProject, clusterName))
+    samAPI.createResource(notebookClusterResourceTypeName, internalId)
   }
 
-  def deleteNotebookClusterResource(creatorEmail: WorkbenchEmail, googleProject: GoogleProject, clusterName: ClusterName) = {
-    logger.debug(s"Calling Sam deleteNotebookClusterResource as PET for user [${creatorEmail.value}] with project [${googleProject.value}] and clusterName [${clusterName.value}]")
+  def deleteNotebookClusterResource(creatorEmail: WorkbenchEmail, googleProject: GoogleProject, clusterName: ClusterName, internalId: String) = {
+    logger.debug(s"Calling Sam deleteNotebookClusterResource as PET for user [${creatorEmail.value}] with project [${googleProject.value}] and clusterName [${clusterName.value}] Resource ID is [$internalId].")
     // this is called as the user's pet
     val samAPI = samResourcesApiAsPet(creatorEmail, googleProject)
-    samAPI.deleteResource(notebookClusterResourceTypeName, getClusterResourceId(googleProject, clusterName))
+    samAPI.deleteResource(notebookClusterResourceTypeName, internalId)
   }
 
   def hasActionOnBillingProjectResource(userInfo: UserInfo, googleProject: GoogleProject, action: String): Boolean = {
@@ -134,9 +134,9 @@ class SwaggerSamClient(samBasePath: String, cacheEnabled: Boolean, cacheExpiryTi
     hasActionOnResource(userInfo, billingProjectResourceTypeName, googleProject.value, action)
   }
 
-  def hasActionOnNotebookClusterResource(userInfo: UserInfo, googleProject: GoogleProject, clusterName: ClusterName, action: String): Boolean = {
+  def hasActionOnNotebookClusterResource(userInfo: UserInfo, googleProject: GoogleProject, clusterName: ClusterName, internalId: String, action: String): Boolean = {
     // this is called with the user's token
-    hasActionOnResource(userInfo, notebookClusterResourceTypeName, getClusterResourceId(googleProject, clusterName), action)
+    hasActionOnResource(userInfo, notebookClusterResourceTypeName, internalId, action)
   }
 
   def getUserProxyFromSam(userEmail: WorkbenchEmail): WorkbenchEmail = {
@@ -178,9 +178,9 @@ class SwaggerSamClient(samBasePath: String, cacheEnabled: Boolean, cacheExpiryTi
     samAPI.resourceAction(resourceType, resourceName, action)
   }
 
-  private def getClusterResourceId(googleProject: GoogleProject, clusterName: ClusterName): String = {
-    googleProject.value + "_" + clusterName.value
-  }
+//  private def getClusterResourceId(googleProject: GoogleProject, clusterName: ClusterName): String = {
+//    googleProject.value + "_" + clusterName.value
+//  }
 
   private def parseClusterResourceId(id: String): Option[(GoogleProject, ClusterName)] = {
     val splitId = id.split("_")

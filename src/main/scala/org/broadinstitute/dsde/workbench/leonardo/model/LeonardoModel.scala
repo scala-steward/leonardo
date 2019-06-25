@@ -85,6 +85,7 @@ case class ClusterImage(tool: ClusterTool,
 // The cluster itself
 // Also the API response for "list clusters" and "get active cluster"
 final case class Cluster(id: Long = 0, // DB AutoInc
+                   internalId: String, //For legacy clusters, "project_name", for new ones UUID. MB's vision is that one day this replaces the autoinc ID
                    clusterName: ClusterName,
                    googleProject: GoogleProject,
                    serviceAccountInfo: ServiceAccountInfo,
@@ -112,6 +113,7 @@ object Cluster {
   type LabelMap = Map[String, String]
 
   def create(clusterRequest: ClusterRequest,
+             internalId: String,
              userEmail: WorkbenchEmail,
              clusterName: ClusterName,
              googleProject: GoogleProject,
@@ -124,6 +126,7 @@ object Cluster {
              stagingBucket: Option[GcsBucketName] = None,
              clusterImages: Set[ClusterImage] = Set.empty): Cluster = {
     Cluster(
+      internalId = internalId,
       clusterName = clusterName,
       googleProject = googleProject,
       serviceAccountInfo = serviceAccountInfo,
@@ -453,6 +456,7 @@ object LeonardoJsonSupport extends SprayJsonSupport with DefaultJsonProtocol {
         case JsObject(fields: Map[String, JsValue]) =>
           Cluster(
             fields.getOrElse("id", JsNull).convertTo[Long],
+            fields.getOrElse("internalId", JsNull).convertTo[String],
             fields.getOrElse("clusterName", JsNull).convertTo[ClusterName],
             fields.getOrElse("googleProject", JsNull).convertTo[GoogleProject],
             fields.getOrElse("serviceAccountInfo", JsNull).convertTo[ServiceAccountInfo],
