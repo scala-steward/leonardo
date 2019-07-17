@@ -26,7 +26,7 @@ import org.broadinstitute.dsde.workbench.leonardo.model._
 import org.broadinstitute.dsde.workbench.leonardo.model.google.ClusterStatus.Stopped
 import org.broadinstitute.dsde.workbench.leonardo.model.google.DataprocRole._
 import org.broadinstitute.dsde.workbench.leonardo.model.google._
-import org.broadinstitute.dsde.workbench.leonardo.util.BucketHelper
+import org.broadinstitute.dsde.workbench.leonardo.util.{BucketHelper, ClusterHelper}
 import org.broadinstitute.dsde.workbench.model.google._
 import org.broadinstitute.dsde.workbench.model.{ErrorReport, UserInfo, WorkbenchEmail}
 import org.broadinstitute.dsde.workbench.util.Retry
@@ -100,16 +100,17 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
                       protected val proxyConfig: ProxyConfig,
                       protected val swaggerConfig: SwaggerConfig,
                       protected val autoFreezeConfig: AutoFreezeConfig,
-                      protected val gdDAO: GoogleDataprocDAO,
-                      protected val googleComputeDAO: GoogleComputeDAO,
-                      protected val googleIamDAO: GoogleIamDAO,
-                      protected val googleProjectDAO: GoogleProjectDAO,
-                      protected val leoGoogleStorageDAO: GoogleStorageDAO,
-                      protected val petGoogleStorageDAO: String => GoogleStorageDAO,
+//                      protected val gdDAO: GoogleDataprocDAO,
+//                      protected val googleComputeDAO: GoogleComputeDAO,
+//                      protected val googleIamDAO: GoogleIamDAO,
+//                      protected val googleProjectDAO: GoogleProjectDAO,
+//                      protected val leoGoogleStorageDAO: GoogleStorageDAO,
+//                      protected val petGoogleStorageDAO: String => GoogleStorageDAO,
                       protected val dbRef: DbReference,
                       protected val authProvider: LeoAuthProvider,
                       protected val serviceAccountProvider: ServiceAccountProvider,
                       protected val bucketHelper: BucketHelper,
+                      protected val clusterHelper: ClusterHelper,
                       protected val contentSecurityPolicy: String)
                      (implicit val executionContext: ExecutionContext,
                       implicit override val system: ActorSystem) extends LazyLogging with Retry {
@@ -117,13 +118,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
   private val bucketPathMaxLength = 1024
   private val includeDeletedKey = "includeDeleted"
 
-  private lazy val firewallRule = FirewallRule(
-    name = FirewallRuleName(dataprocConfig.firewallRuleName),
-    protocol = FirewallRuleProtocol(proxyConfig.jupyterProtocol),
-    ports = List(FirewallRulePort(proxyConfig.jupyterPort.toString)),
-    network = dataprocConfig.vpcNetwork.map(VPCNetworkName),
-    targetTags = List(NetworkTag(dataprocConfig.networkTag)))
-
+  // TODO should this move to ClusterHelper?
   // Startup script to install on the cluster master node. This allows Jupyter to start back up after
   // a cluster is resumed.
   protected def getMasterInstanceStartupScript(welderEnabled: Boolean): immutable.Map[String, String] = {
@@ -162,62 +157,6 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
         else
           throw ClusterNotFoundException(cluster.googleProject, cluster.clusterName)
       case true => ()
-    }
-  }
-
-  def createCluster(userInfo: UserInfo,
-                    googleProject: GoogleProject,
-                    clusterName: ClusterName,
-                    clusterRequest: ClusterRequest): Future[Cluster] = {
-    for {
-      _ <- checkProjectPermission(userInfo, CreateClusters, googleProject)
-
-      // Grab the service accounts from serviceAccountProvider for use later
-      clusterServiceAccountOpt <- serviceAccountProvider.getClusterServiceAccount(userInfo, googleProject)
-      notebookServiceAccountOpt <- serviceAccountProvider.getNotebookServiceAccount(userInfo, googleProject)
-      serviceAccountInfo = ServiceAccountInfo(clusterServiceAccountOpt, notebookServiceAccountOpt)
-
-      cluster <- internalCreateCluster(userInfo.userEmail, serviceAccountInfo, googleProject, clusterName, clusterRequest)
-    } yield cluster
-  }
-
-  def internalCreateCluster(userEmail: WorkbenchEmail,
-                            serviceAccountInfo: ServiceAccountInfo,
-                            googleProject: GoogleProject,
-                            clusterName: ClusterName,
-                            clusterRequest: ClusterRequest): Future[Cluster] = {
-    // Check if the google project has an active cluster with the same name. If not, we can create it
-    dbRef.inTransaction { dataAccess =>
-      dataAccess.clusterQuery.getActiveClusterByName(googleProject, clusterName)
-    } flatMap {
-      case Some(existingCluster) => throw ClusterAlreadyExistsException(googleProject, clusterName, existingCluster.status)
-      case None =>
-        val augmentedClusterRequest = augmentClusterRequest(serviceAccountInfo, googleProject, clusterName, userEmail, clusterRequest)
-        val clusterImages = processClusterImages(clusterRequest)
-        val clusterFuture = for {
-          // Notify the auth provider that the cluster has been created
-          _ <- authProvider.notifyClusterCreated(userEmail, googleProject, clusterName)
-
-          // Validate that the Jupyter extension URIs and Jupyter user script URI are valid URIs and reference real GCS objects
-          _ <- validateClusterRequestBucketObjectUri(userEmail, googleProject, augmentedClusterRequest)
-
-          // Create the cluster in Google
-          (cluster, initBucket, serviceAccountKeyOpt) <- createGoogleCluster(userEmail, serviceAccountInfo, googleProject, clusterName, augmentedClusterRequest, clusterImages)
-
-          // Save the cluster in the database
-          savedCluster <- dbRef.inTransaction(_.clusterQuery.save(cluster, Option(GcsPath(initBucket, GcsObjectName(""))), serviceAccountKeyOpt.map(_.id)))
-        } yield {
-          savedCluster
-        }
-
-        // If cluster creation failed on the Google side, createGoogleCluster removes resources in Google.
-        // We also need to notify our auth provider that the cluster has been deleted.
-        clusterFuture.andThen {
-          // Don't wait for this future
-          case Failure(_) => authProvider.notifyClusterDeleted(userEmail, userEmail, googleProject, clusterName)
-        }
-
-        clusterFuture
     }
   }
 
@@ -262,84 +201,26 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
                                    googleProject: GoogleProject,
                                    clusterName: ClusterName,
                                    clusterRequest: ClusterRequest): Future[Cluster] = {
-
     val augmentedClusterRequest = augmentClusterRequest(serviceAccountInfo, googleProject, clusterName, userEmail, clusterRequest)
-    val clusterImages = processClusterImages(clusterRequest)
+    val clusterImages = getClusterImages(clusterRequest)
     val machineConfig = MachineConfigOps.create(clusterRequest.machineConfig, clusterDefaultsConfig)
     val autopauseThreshold = calculateAutopauseThreshold(
       clusterRequest.autopause, clusterRequest.autopauseThreshold)
-    val clusterScopes = if(clusterRequest.scopes.isEmpty) dataprocConfig.defaultScopes else clusterRequest.scopes
-    val initialClusterToSave = Cluster.create(
+    val clusterScopes = if (clusterRequest.scopes.isEmpty) dataprocConfig.defaultScopes else clusterRequest.scopes
+    val initialClusterToSave = Cluster.createInitial(
       augmentedClusterRequest, userEmail, clusterName, googleProject,
       serviceAccountInfo, machineConfig, dataprocConfig.clusterUrlBase, autopauseThreshold, clusterScopes,
       clusterImages = clusterImages)
 
     // Validate that the Jupyter extension URIs and Jupyter user script URI are valid URIs and reference real GCS objects
     // and if so, save the cluster creation request parameters in DB
-    val attemptToSaveClusterInDb: Future[Cluster] = validateClusterRequestBucketObjectUri(userEmail, googleProject, augmentedClusterRequest)
-      .flatMap { _ =>
-        logger.info(s"Attempting to notify the AuthProvider for creation of cluster '$clusterName' " +
-          s"on Google project '$googleProject'...")
-        authProvider.notifyClusterCreated(userEmail, googleProject, clusterName) }
-      .flatMap { _ =>
-        logger.info(s"Successfully notified the AuthProvider for creation of cluster '$clusterName' " +
-          s"on Google project '$googleProject'.")
-
-        dbRef.inTransaction { _.clusterQuery.save(initialClusterToSave) }
-      }
-
-    // For the success case, register the following callbacks...
-    attemptToSaveClusterInDb foreach { savedInitialCluster =>
-      logger.info(s"Inserted an initial record into the DB for cluster '$clusterName' " +
-        s"on Google project '$googleProject'.")
-
-      logger.info(s"Attempting to asynchronously create cluster '$clusterName' " +
-        s"on Google project '$googleProject'...")
-
-      completeClusterCreation(userEmail, savedInitialCluster, augmentedClusterRequest)
-        .onComplete {
-          case Success(updatedCluster) =>
-            logger.info(s"Successfully submitted to Google the request to create cluster " +
-              s"'${updatedCluster.clusterName}' on Google project '${updatedCluster.googleProject}', " +
-              s"and updated the database record accordingly. Will monitor the cluster creation process...")
-          case Failure(e) =>
-            logger.error(s"Failed the asynchronous portion of the creation of cluster '$clusterName' " +
-              s"on Google project '$googleProject'.", e)
-
-            // Since we failed, createGoogleCluster removes resources in Google but
-            // we also need to notify our auth provider that the cluster has been deleted.
-            // We won't wait for that deletion, though.
-            authProvider.notifyClusterDeleted(userEmail, userEmail, googleProject, clusterName)
-
-            // We also want to record the error in database for future reference.
-            persistErrorInDb(e, clusterName, savedInitialCluster.id, googleProject)
-        }
-    }
-
-    attemptToSaveClusterInDb
-  }
-
-  // Meant to be run asynchronously to the clusterCreate API request
-  private def completeClusterCreation(userEmail: WorkbenchEmail,
-                                      cluster: Cluster,
-                                      clusterRequest: ClusterRequest): Future[Cluster] = {
-    logger.info(s"Submitting to Google the request to create cluster '${cluster.clusterName}' " +
-      s"on Google project '${cluster.googleProject}'...")
-
     for {
-      (googleCluster, initBucket, serviceAccountKey) <- createGoogleCluster(userEmail, cluster, clusterRequest)
-
-      // We overwrite googleCluster.id with the DB-assigned one that was obtained when we first
-      // inserted the record into the DB prior to completing the createCluster request
-      googleClusterWithUpdatedId = googleCluster.copy(id = cluster.id)
-
-      _ <- dbRef.inTransaction {
-            _.clusterQuery
-              .updateAsyncClusterCreationFields(
-                Option(GcsPath(initBucket, GcsObjectName(""))), serviceAccountKey, googleClusterWithUpdatedId)
-           }
-    } yield googleClusterWithUpdatedId
+      _ <- validateClusterRequestBucketObjectUri(userEmail, googleProject, augmentedClusterRequest)
+      _ <- authProvider.notifyClusterCreated(userEmail, googleProject, clusterName)
+      cluster <- dbRef.inTransaction { _.clusterQuery.save(initialClusterToSave) }
+    } yield cluster
   }
+
 
   //throws 404 if nonexistent or no permissions
   def getActiveClusterDetails(userInfo: UserInfo, googleProject: GoogleProject, clusterName: ClusterName): Future[Cluster] = {
@@ -447,13 +328,13 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
           // Add Dataproc Worker role to the cluster service account, if present.
           // This is needed to be able to spin up Dataproc clusters.
           // If the Google Compute default service account is being used, this is not necessary.
-          _ <- addDataprocWorkerRoleToServiceAccount(existingCluster.googleProject, existingCluster.serviceAccountInfo.clusterServiceAccount)
+          _ <- clusterHelper.addDataprocWorkerRoleToServiceAccount(existingCluster.googleProject, existingCluster.serviceAccountInfo.clusterServiceAccount)
 
           // Resize the cluster
           _ <- gdDAO.resizeCluster(existingCluster.googleProject, existingCluster.clusterName, updatedNumWorkersAndPreemptibles.left, updatedNumWorkersAndPreemptibles.right) recoverWith {
             case gjre: GoogleJsonResponseException =>
               //typically we will revoke this role in the monitor after everything is complete, but if Google fails to resize the cluster we need to revoke it manually here
-              removeDataprocWorkerRoleFromServiceAccount(existingCluster.googleProject, existingCluster.serviceAccountInfo.clusterServiceAccount)
+              clusterHelper.removeDataprocWorkerRoleFromServiceAccount(existingCluster.googleProject, existingCluster.serviceAccountInfo.clusterServiceAccount)
 
               logger.info("did not successfully update cluster")
               throw InvalidDataprocMachineConfigException(gjre.getMessage)
@@ -672,117 +553,6 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
     }
   }
 
-  private[service] def createGoogleCluster(userEmail: WorkbenchEmail,
-                                           cluster: Cluster,
-                                           clusterRequest: ClusterRequest)
-                                          (implicit executionContext: ExecutionContext): Future[(Cluster, GcsBucketName, Option[ServiceAccountKey])] = {
-    createGoogleCluster(userEmail, cluster.serviceAccountInfo, cluster.googleProject, cluster.clusterName, clusterRequest, cluster.clusterImages)
-  }
-
-  /* Creates a cluster in the given google project:
-     - Add a firewall rule to the user's google project if it doesn't exist, so we can access the cluster
-     - Create the initialization bucket for the cluster in the leo google project
-     - Upload all the necessary initialization files to the bucket
-     - Create the cluster in the google project */
-  private[service] def createGoogleCluster(userEmail: WorkbenchEmail,
-                                           serviceAccountInfo: ServiceAccountInfo,
-                                           googleProject: GoogleProject,
-                                           clusterName: ClusterName,
-                                           clusterRequest: ClusterRequest,
-                                           clusterImages: Set[ClusterImage])
-                                          (implicit executionContext: ExecutionContext): Future[(Cluster, GcsBucketName, Option[ServiceAccountKey])] = {
-    val initBucketName = generateUniqueBucketName("leoinit-"+clusterName.value)
-    val stagingBucketName = generateUniqueBucketName("leostaging-"+clusterName.value)
-
-    val googleFuture = for {
-      // Create the firewall rule in the google project if it doesn't already exist, so we can access the cluster
-      _ <- googleComputeDAO.updateFirewallRule(googleProject, firewallRule)
-
-      // Generate a service account key for the notebook service account (if present) to localize on the cluster.
-      // We don't need to do this for the cluster service account because its credentials are already
-      // on the metadata server.
-      serviceAccountKeyOpt <- generateServiceAccountKey(googleProject, serviceAccountInfo.notebookServiceAccount)
-
-      // Add Dataproc Worker role to the cluster service account, if present.
-      // This is needed to be able to spin up Dataproc clusters.
-      // If the Google Compute default service account is being used, this is not necessary.
-      _ <- addDataprocWorkerRoleToServiceAccount(googleProject, serviceAccountInfo.clusterServiceAccount)
-
-      // Create the bucket in the cluster's google project and populate with initialization files.
-      // ACLs are granted so the cluster service account can access the files at initialization time.
-      initBucket <- bucketHelper.createInitBucket(googleProject, initBucketName, serviceAccountInfo)
-      _ <- initializeBucketObjects(userEmail, googleProject, clusterName, initBucket, clusterRequest, serviceAccountKeyOpt, contentSecurityPolicy, clusterImages, stagingBucketName)
-
-      // Create the cluster staging bucket. ACLs are granted so the user/pet can access it.
-      stagingBucket <- bucketHelper.createStagingBucket(userEmail, googleProject, stagingBucketName, serviceAccountInfo)
-
-      // build cluster configuration
-      machineConfig = MachineConfigOps.create(clusterRequest.machineConfig, clusterDefaultsConfig)
-      initScript = GcsPath(initBucket, GcsObjectName(clusterResourcesConfig.initActionsScript.value))
-      autopauseThreshold = calculateAutopauseThreshold(clusterRequest.autopause, clusterRequest.autopauseThreshold)
-      clusterScopes = if(clusterRequest.scopes.isEmpty) dataprocConfig.defaultScopes else clusterRequest.scopes
-      credentialsFileName = serviceAccountInfo.notebookServiceAccount.map(_ => s"/etc/${ClusterInitValues.serviceAccountCredentialsFilename}")
-
-      // decide whether to use VPC network
-      lookupProjectLabels = dataprocConfig.projectVPCNetworkLabel.isDefined || dataprocConfig.projectVPCSubnetLabel.isDefined
-      projectLabels <- if (lookupProjectLabels) googleProjectDAO.getLabels(googleProject.value) else Future.successful(Map.empty[String, String])
-      clusterVPCSettings = getClusterVPCSettings(projectLabels)
-
-      // Create the cluster
-      createClusterConfig = CreateClusterConfig(machineConfig, initScript, serviceAccountInfo.clusterServiceAccount, credentialsFileName, stagingBucket, clusterScopes, clusterVPCSettings, clusterRequest.properties)
-      retryResult <- retryExponentially(whenGoogleZoneCapacityIssue, "Cluster creation failed because zone with adequate resources was not found") { () =>
-        gdDAO.createCluster(googleProject, clusterName, createClusterConfig)
-      }
-      operation <- retryResult match {
-        case Right((errors, op)) if errors == List.empty => Future.successful(op)
-        case Right((errors, op)) =>
-          Metrics.newRelic.incrementCounterIO("zoneCapacityClusterCreationFailure", errors.length).unsafeRunAsync(_ => ())
-          Future.successful(op)
-        case Left(errors) =>
-          Metrics.newRelic.incrementCounterIO("zoneCapacityClusterCreationFailure", errors.filter(whenGoogleZoneCapacityIssue).length).unsafeRunAsync(_ => ())
-          Future.failed(errors.head)
-      }
-      cluster = Cluster.create(clusterRequest, userEmail, clusterName, googleProject, serviceAccountInfo,
-        machineConfig, dataprocConfig.clusterUrlBase, autopauseThreshold, clusterScopes, Some(operation), Option(stagingBucket), clusterImages)
-    } yield (cluster, initBucket, serviceAccountKeyOpt)
-
-    // If anything fails, we need to clean up Google resources that might have been created
-    googleFuture.andThen { case Failure(t) =>
-      // Don't wait for this future
-      cleanUpGoogleResourcesOnError(t, googleProject, clusterName, initBucketName, serviceAccountInfo)
-    }
-  }
-
-  private def whenGoogleZoneCapacityIssue(throwable: Throwable): Boolean = {
-    throwable match {
-      case t: GoogleJsonResponseException => t.getStatusCode == 429 && t.getDetails.getErrors.asScala.head.getReason.equalsIgnoreCase("rateLimitExceeded")
-      case _ => false
-    }
-  }
-
-  def getClusterVPCSettings(projectLabels: Map[String, String]): Option[Either[VPCNetworkName, VPCSubnetName]] = {
-    //Dataproc only allows you to specify a subnet OR a network. Subnets will be preferred if present.
-    //High-security networks specified inside of the project will always take precedence over anything
-    //else. Thus, VPC configuration takes the following precedence:
-    // 1) High-security subnet in the project (if present)
-    // 2) High-security network in the project (if present)
-    // 3) Subnet specified in leonardo.conf (if present)
-    // 4) Network specified in leonardo.conf (if present)
-    // 5) The default network in the project
-    val projectSubnet  = dataprocConfig.projectVPCSubnetLabel.flatMap(subnetLabel => projectLabels.get(subnetLabel).map(VPCSubnetName) )
-    val projectNetwork = dataprocConfig.projectVPCNetworkLabel.flatMap( networkLabel => projectLabels.get(networkLabel).map(VPCNetworkName) )
-    val configSubnet   = dataprocConfig.vpcSubnet.map(VPCSubnetName)
-    val configNetwork  = dataprocConfig.vpcNetwork.map(VPCNetworkName)
-
-    (projectSubnet, projectNetwork, configSubnet, configNetwork) match {
-      case (Some(subnet), _, _, _)  => Some(Right(subnet))
-      case (_, Some(network), _, _) => Some(Left(network))
-      case (_, _, Some(subnet), _)  => Some(Right(subnet))
-      case (_, _, _, Some(network)) => Some(Left(network))
-      case (_, _, _, _)             => None
-    }
-  }
-
   private def calculateAutopauseThreshold(autopause: Option[Boolean], autopauseThreshold: Option[Int]): Int = {
     autopause match {
       case None =>
@@ -795,105 +565,31 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
     }
   }
 
-  private def persistErrorInDb(e: Throwable,
-                               clusterName: ClusterName,
-                               clusterId: Long,
-                               googleProject: GoogleProject): Future[Unit] = {
-    val errorMessage = e match {
-      case leoEx: LeoException =>
-        ErrorReport.loggableString(leoEx.toErrorReport)
-      case _ =>
-        s"Asynchronous creation of cluster '$clusterName' on Google project " +
-          s"'$googleProject' failed due to '${e.toString}'."
-    }
-
-    // TODO Make errorCode field nullable in ClusterErrorComponent and pass None below
-    // See https://github.com/DataBiosphere/leonardo/issues/512
-    val dummyErrorCode = -1
-
-    val errorInfo = ClusterError(errorMessage, dummyErrorCode, Instant.now)
-
-    dbRef.inTransaction { dataAccess =>
-      for {
-        _ <- dataAccess.clusterQuery.updateClusterStatus(clusterId, ClusterStatus.Error)
-        _ <- dataAccess.clusterErrorQuery.save(clusterId, errorInfo)
-      } yield ()
-    }
-  }
-
-  private[service] def cleanUpGoogleResourcesOnError(throwable: Throwable, googleProject: GoogleProject, clusterName: ClusterName, initBucketName: GcsBucketName, serviceAccountInfo: ServiceAccountInfo): Future[Unit] = {
-    logger.error(s"Cluster creation failed in Google for $googleProject / ${clusterName.value}. Cleaning up resources in Google...")
-
-    // Clean up resources in Google
-
-    val deleteInitBucketFuture = leoGoogleStorageDAO.deleteBucket(initBucketName, recurse = true) map { _ =>
-      logger.info(s"Successfully deleted init bucket ${initBucketName.value} for  ${googleProject.value} / ${clusterName.value}")
-    } recover { case e =>
-      logger.error(s"Failed to delete init bucket ${initBucketName.value} for  ${googleProject.value} / ${clusterName.value}", e)
-    }
-
-    // Don't delete the staging bucket so the user can see error logs.
-
-    val deleteClusterFuture = gdDAO.deleteCluster(googleProject, clusterName) map { _ =>
-      logger.info(s"Successfully deleted cluster ${googleProject.value} / ${clusterName.value}")
-    } recover { case e =>
-      logger.error(s"Failed to delete cluster ${googleProject.value} / ${clusterName.value}", e)
-    }
-
-    val deleteServiceAccountKeyFuture =  removeServiceAccountKey(googleProject, clusterName, serviceAccountInfo.notebookServiceAccount) map { _ =>
-      logger.info(s"Successfully deleted service account key for ${serviceAccountInfo.notebookServiceAccount}")
-    } recover { case e =>
-      logger.error(s"Failed to delete service account key for ${serviceAccountInfo.notebookServiceAccount}", e)
-    }
-
-    Future.sequence(Seq(deleteInitBucketFuture, deleteClusterFuture, deleteServiceAccountKeyFuture)).void
-  }
-
-  private[service] def generateServiceAccountKey(googleProject: GoogleProject, serviceAccountOpt: Option[WorkbenchEmail]): Future[Option[ServiceAccountKey]] = {
-    serviceAccountOpt.traverse { serviceAccountEmail =>
-      googleIamDAO.createServiceAccountKey(googleProject, serviceAccountEmail)
-    }
-  }
-
-  private[service] def removeServiceAccountKey(googleProject: GoogleProject, clusterName: ClusterName, serviceAccountOpt: Option[WorkbenchEmail]): Future[Unit] = {
-    // Delete the service account key in Google, if present
-    val tea = for {
-      key <- OptionT(dbRef.inTransaction { _.clusterQuery.getServiceAccountKeyId(googleProject, clusterName) })
-      serviceAccountEmail <- OptionT.fromOption[Future](serviceAccountOpt)
-      _ <- OptionT.liftF(googleIamDAO.removeServiceAccountKey(googleProject, serviceAccountEmail, key))
-    } yield ()
-
-    tea.value.void
-  }
-
-  private def whenGoogle409(throwable: Throwable): Boolean = {
-    throwable match {
-      case t: GoogleJsonResponseException => t.getStatusCode == 409
-      case _ => false
-    }
-  }
-
-  private[service] def addDataprocWorkerRoleToServiceAccount(googleProject: GoogleProject, serviceAccountOpt: Option[WorkbenchEmail]): Future[Unit] = {
-    serviceAccountOpt.map { serviceAccountEmail =>
-      // Retry 409s with exponential backoff. This can happen if concurrent policy updates are made in the same project.
-      // Google recommends a retry in this case.
-      val iamFuture: Future[Unit] = retryExponentially(whenGoogle409, s"IAM policy change failed for Google project '$googleProject'") { () =>
-        googleIamDAO.addIamRolesForUser(googleProject, serviceAccountEmail, Set("roles/dataproc.worker"))
-      }
-      iamFuture
-    } getOrElse Future.unit
-  }
-
-  private[service] def removeDataprocWorkerRoleFromServiceAccount(googleProject: GoogleProject, serviceAccountOpt: Option[WorkbenchEmail]): Future[Unit] = {
-    serviceAccountOpt.map { serviceAccountEmail =>
-      // Retry 409s with exponential backoff. This can happen if concurrent policy updates are made in the same project.
-      // Google recommends a retry in this case.
-      val iamFuture: Future[Unit] = retryExponentially(whenGoogle409, s"IAM policy change failed for Google project '$googleProject'") { () =>
-        googleIamDAO.removeIamRolesForUser(googleProject, serviceAccountEmail, Set("roles/dataproc.worker"))
-      }
-      iamFuture
-    } getOrElse Future.unit
-  }
+//  private def persistErrorInDb(e: Throwable,
+//                               clusterName: ClusterName,
+//                               clusterId: Long,
+//                               googleProject: GoogleProject): Future[Unit] = {
+//    val errorMessage = e match {
+//      case leoEx: LeoException =>
+//        ErrorReport.loggableString(leoEx.toErrorReport)
+//      case _ =>
+//        s"Asynchronous creation of cluster '$clusterName' on Google project " +
+//          s"'$googleProject' failed due to '${e.toString}'."
+//    }
+//
+//    // TODO Make errorCode field nullable in ClusterErrorComponent and pass None below
+//    // See https://github.com/DataBiosphere/leonardo/issues/512
+//    val dummyErrorCode = -1
+//
+//    val errorInfo = ClusterError(errorMessage, dummyErrorCode, Instant.now)
+//
+//    dbRef.inTransaction { dataAccess =>
+//      for {
+//        _ <- dataAccess.clusterQuery.updateClusterStatus(clusterId, ClusterStatus.Error)
+//        _ <- dataAccess.clusterErrorQuery.save(clusterId, errorInfo)
+//      } yield ()
+//    }
+//  }
 
   private def validateClusterRequestBucketObjectUri(userEmail: WorkbenchEmail, googleProject: GoogleProject, clusterRequest: ClusterRequest)
                                                    (implicit executionContext: ExecutionContext): Future[Unit] = {
@@ -959,96 +655,6 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
     case _ => false
   }
 
-  /* Process the templated cluster init script and put all initialization files in the init bucket */
-  private[service] def initializeBucketObjects(userEmail: WorkbenchEmail,
-                                               googleProject: GoogleProject,
-                                               clusterName: ClusterName,
-                                               initBucketName: GcsBucketName,
-                                               clusterRequest: ClusterRequest,
-                                               serviceAccountKey: Option[ServiceAccountKey],
-                                               contentSecurityPolicy: String,
-                                               clusterImages: Set[ClusterImage],
-                                               stagingBucket: GcsBucketName): Future[Unit] = {
-
-    // Build a mapping of (name, value) pairs with which to apply templating logic to resources
-    val clusterInit = ClusterInitValues(googleProject, clusterName, initBucketName, clusterRequest, dataprocConfig,
-      clusterFilesConfig, clusterResourcesConfig, proxyConfig, serviceAccountKey, userEmail, contentSecurityPolicy, clusterImages, stagingBucket)
-    val replacements: Map[String, String] = clusterInit.toMap
-
-    // Raw files to upload to the bucket, no additional processing needed.
-    val filesToUpload = List(
-      clusterFilesConfig.jupyterServerCrt,
-      clusterFilesConfig.jupyterServerKey,
-      clusterFilesConfig.jupyterRootCaPem)
-
-    // Raw resources to upload to the bucket, no additional processing needed.
-    // Note: initActionsScript and jupyterGoogleSignInJs are not included
-    // because they are post-processed by templating logic.
-    val resourcesToUpload = List(
-      clusterResourcesConfig.jupyterDockerCompose,
-      clusterResourcesConfig.rstudioDockerCompose,
-      clusterResourcesConfig.proxyDockerCompose,
-      clusterResourcesConfig.proxySiteConf,
-      clusterResourcesConfig.extensionEntry,
-      clusterResourcesConfig.jupyterLabGooglePlugin,
-      clusterResourcesConfig.welderDockerCompose
-    )
-
-    // Uploads the service account private key to the init bucket, if defined.
-    // This is a no-op if createClusterAsPetServiceAccount is true.
-    val uploadPrivateKeyFuture: Future[Unit] = serviceAccountKey.flatMap(_.privateKeyData.decode).map { k =>
-      leoGoogleStorageDAO.storeObject(initBucketName, GcsObjectName(ClusterInitValues.serviceAccountCredentialsFilename), k, "text/plain")
-    } getOrElse(Future.unit)
-
-    // Fill in templated resources with the given replacements
-    val initScriptContent = templateResource(clusterResourcesConfig.initActionsScript, replacements)
-    val googleSignInJsContent = templateResource(clusterResourcesConfig.googleSignInJs, replacements)
-    val editModeJsContent = templateResource(clusterResourcesConfig.editModeJs, replacements)
-    val safeModeJsContent = templateResource(clusterResourcesConfig.safeModeJs, replacements)
-    val jupyterNotebookConfigContent = templateResource(clusterResourcesConfig.jupyterNotebookConfigUri, replacements)
-
-    for {
-      // Upload the init script to the bucket
-      _ <- leoGoogleStorageDAO.storeObject(initBucketName, GcsObjectName(clusterResourcesConfig.initActionsScript.value), initScriptContent, "text/plain")
-
-      // Upload the nb extensions to the bucket
-      _ <- leoGoogleStorageDAO.storeObject(initBucketName, GcsObjectName(clusterResourcesConfig.googleSignInJs.value), googleSignInJsContent, "text/plain")
-      _ <- leoGoogleStorageDAO.storeObject(initBucketName, GcsObjectName(clusterResourcesConfig.editModeJs.value), editModeJsContent, "text/plain")
-      _ <- leoGoogleStorageDAO.storeObject(initBucketName, GcsObjectName(clusterResourcesConfig.safeModeJs.value), safeModeJsContent, "text/plain")
-
-
-      // Update the jupytyer notebook config file
-      _ <- leoGoogleStorageDAO.storeObject(initBucketName, GcsObjectName(clusterResourcesConfig.jupyterNotebookConfigUri.value), jupyterNotebookConfigContent, "text/plain")
-
-      // Upload raw files (like certs) to the bucket
-      _ <- Future.traverse(filesToUpload)(file => leoGoogleStorageDAO.storeObject(initBucketName, GcsObjectName(file.getName), file, "text/plain"))
-
-      // Upload raw resources (like cluster-docker-compose.yml, site.conf) to the bucket
-      _ <- Future.traverse(resourcesToUpload) { resource =>
-        val content = Source.fromResource(s"${ClusterResourcesConfig.basePath}/${resource.value}").mkString
-        leoGoogleStorageDAO.storeObject(initBucketName, GcsObjectName(resource.value), content, "text/plain")
-      }
-
-      // Update the private key json, if defined
-      _ <- uploadPrivateKeyFuture
-    } yield ()
-  }
-
-  // Process a string using map of replacement values. Each value in the replacement map replaces its key in the string.
-  private[service] def template(raw: String, replacementMap: Map[String, String]): String = {
-    replacementMap.foldLeft(raw)((a, b) => a.replaceAllLiterally("$(" + b._1 + ")", "\"" + b._2 + "\""))
-  }
-
-  private[service] def templateFile(file: File, replacementMap: Map[String, String]): String = {
-    val raw = Source.fromFile(file).mkString
-    template(raw, replacementMap)
-  }
-
-  private[service] def templateResource(resource: ClusterResource, replacementMap: Map[String, String]): String = {
-    val raw = Source.fromResource(s"${ClusterResourcesConfig.basePath}/${resource.value}").mkString
-    template(raw, replacementMap)
-  }
-
   private[service] def processListClustersParameters(params: LabelMap): Future[(LabelMap, Boolean)] = {
     Future {
       params.get(includeDeletedKey) match {
@@ -1086,33 +692,30 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
     }
   }
 
-  private[service] def augmentClusterRequest(serviceAccountInfo: ServiceAccountInfo, googleProject: GoogleProject, clusterName: ClusterName, userEmail: WorkbenchEmail, clusterRequest: ClusterRequest) = {
-    val userJupyterExt = clusterRequest.jupyterExtensionUri match {
-      case Some(ext) => Map[String, String]("notebookExtension" -> ext.toUri)
-      case None => Map[String, String]()
+  private[service] def getExtensionConfig(clusterRequest: ClusterRequest): Option[UserJupyterExtensionConfig] = {
+    // legacy extension param
+    (clusterRequest.jupyterExtensionUri, clusterRequest.userJupyterExtensionConfig) match {
+      case (Some(legacy), Some(extensionConfig)) =>
+        Some(extensionConfig.copy(nbExtensions = extensionConfig.nbExtensions ++ Map("notebookExtension" -> legacy.toUri)))
+      case (Some(legacy), None) =>
+        Some(UserJupyterExtensionConfig(Map("notebookExtension" -> legacy.toUri)))
+      case (None, extensionConfigOpt) =>
+        extensionConfigOpt
     }
-
-    // add the userJupyterExt to the nbExtensions
-    val updatedUserJupyterExtensionConfig = clusterRequest.userJupyterExtensionConfig match {
-      case Some(config) => config.copy(nbExtensions = config.nbExtensions ++ userJupyterExt)
-      case None => UserJupyterExtensionConfig(userJupyterExt, Map.empty, Map.empty, Map.empty)
-    }
-
-    // transform Some(empty, empty, empty, empty) to None
-    // TODO: is this really necessary?
-    val updatedClusterRequest = clusterRequest.copy(userJupyterExtensionConfig = if (updatedUserJupyterExtensionConfig.asLabels.isEmpty)
-      None
-    else
-      Some(updatedUserJupyterExtensionConfig))
-
-    addClusterLabels(serviceAccountInfo, googleProject, clusterName, userEmail, updatedClusterRequest)
   }
 
-  private[service] def addClusterLabels(serviceAccountInfo: ServiceAccountInfo,
+  private[service] def augmentClusterRequest(serviceAccountInfo: ServiceAccountInfo, googleProject: GoogleProject, clusterName: ClusterName, userEmail: WorkbenchEmail, clusterRequest: ClusterRequest) = {
+    clusterRequest.copy(
+      userJupyterExtensionConfig = getExtensionConfig(clusterRequest),
+      labels = getClusterLabels(serviceAccountInfo, googleProject, clusterName, userEmail, clusterRequest)
+    )
+  }
+
+  private[service] def getClusterLabels(serviceAccountInfo: ServiceAccountInfo,
                                         googleProject: GoogleProject,
                                         clusterName: ClusterName,
                                         creator: WorkbenchEmail,
-                                        clusterRequest: ClusterRequest): ClusterRequest = {
+                                        clusterRequest: ClusterRequest): Map[String, String] = {
     // create a LabelMap of default labels
     val defaultLabels = DefaultLabels(clusterName, googleProject, creator,
       serviceAccountInfo.clusterServiceAccount, serviceAccountInfo.notebookServiceAccount, clusterRequest.jupyterUserScriptUri)
@@ -1126,10 +729,10 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
     if (allLabels.contains(includeDeletedKey))
       throw IllegalLabelKeyException(includeDeletedKey)
     else clusterRequest
-      .copy(labels = allLabels)
+      allLabels
   }
 
-  private[service] def processClusterImages(clusterRequest: ClusterRequest): Set[ClusterImage] = {
+  private[service] def getClusterImages(clusterRequest: ClusterRequest): Set[ClusterImage] = {
     val now = Instant.now
 
     //If welder is enabled for this cluster, we need to ensure that an image is chosen.

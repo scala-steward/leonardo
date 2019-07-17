@@ -59,6 +59,7 @@ object ClusterStatus extends Enum[ClusterStatus] {
 
   // NOTE: Remember to update the definition of this enum in Swagger when you add new ones
   case object Unknown  extends ClusterStatus
+  case object Provisioning extends ClusterStatus
   case object Creating extends ClusterStatus
   case object Running  extends ClusterStatus
   case object Updating extends ClusterStatus
@@ -72,13 +73,13 @@ object ClusterStatus extends Enum[ClusterStatus] {
   case object Starting extends ClusterStatus
 
   // A user might need to connect to this notebook in the future. Keep it warm in the DNS cache.
-  val activeStatuses: Set[ClusterStatus] = Set(Unknown, Creating, Running, Updating, Stopping, Stopped, Starting)
+  val activeStatuses: Set[ClusterStatus] = Set(Unknown, Provisioning, Creating, Running, Updating, Stopping, Stopped, Starting)
 
   // Can a user delete this cluster? Contains everything except Creating, Deleting, Deleted.
   val deletableStatuses: Set[ClusterStatus] = Set(Unknown, Running, Updating, Error, Stopping, Stopped, Starting)
 
   // Non-terminal statuses. Requires cluster monitoring via ClusterMonitorActor.
-  val monitoredStatuses: Set[ClusterStatus] = Set(Unknown, Creating, Updating, Deleting, Stopping, Starting)
+  val monitoredStatuses: Set[ClusterStatus] = Set(Unknown, Provisioning, Creating, Updating, Deleting, Stopping, Starting)
 
   // Can a user stop this cluster?
   val stoppableStatuses: Set[ClusterStatus] = Set(Unknown, Running, Updating, Starting)
