@@ -149,7 +149,7 @@ object Cluster {
       stopAfterCreation = clusterRequest.stopAfterCreation.getOrElse(false),
       clusterImages = clusterImages,
       scopes = clusterScopes,
-      welderEnabled = clusterRequest.enableWelder.getOrElse(false))
+      welderEnabled = clusterRequest.enableWelder.getOrElse(true))
   }
 
   // TODO it's hacky to re-parse the Leo config in the model object.
