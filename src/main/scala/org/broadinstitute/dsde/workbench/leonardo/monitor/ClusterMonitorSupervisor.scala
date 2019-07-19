@@ -14,9 +14,8 @@ import org.broadinstitute.dsde.workbench.leonardo.config.{AutoFreezeConfig, Clus
 import org.broadinstitute.dsde.workbench.leonardo.dao.google.{GoogleComputeDAO, GoogleDataprocDAO}
 import org.broadinstitute.dsde.workbench.leonardo.dao.{JupyterDAO, RStudioDAO, WelderDAO}
 import org.broadinstitute.dsde.workbench.leonardo.db.DbReference
-import org.broadinstitute.dsde.workbench.leonardo.model.ClusterTool.Jupyter
 import org.broadinstitute.dsde.workbench.leonardo.model.google.ClusterStatus
-import org.broadinstitute.dsde.workbench.leonardo.model.{Cluster, ClusterRequest, ClusterTool, LeoAuthProvider}
+import org.broadinstitute.dsde.workbench.leonardo.model.{Cluster, ClusterTool, LeoAuthProvider}
 import org.broadinstitute.dsde.workbench.leonardo.monitor.ClusterMonitorSupervisor.{ClusterSupervisorMessage, _}
 import org.broadinstitute.dsde.workbench.leonardo.service.LeonardoService
 import org.broadinstitute.dsde.workbench.model.WorkbenchException
@@ -90,28 +89,14 @@ class ClusterMonitorSupervisor(monitorConfig: MonitorConfig, dataprocConfig: Dat
     case RecreateCluster(cluster) =>
       if (monitorConfig.recreateCluster) {
         logger.info(s"Recreating cluster ${cluster.projectNameString}...")
-        dbRef.inTransaction { dataAccess =>
-          dataAccess.clusterQuery.getClusterById(cluster.id)
-        }.flatMap {
-          case Some(cluster) =>
-            val clusterRequest = ClusterRequest(
-              cluster.labels,
-              cluster.jupyterExtensionUri,
-              cluster.jupyterUserScriptUri,
-              Some(cluster.machineConfig),
-              cluster.properties,
-              None,
-              cluster.userJupyterExtensionConfig,
-              if (cluster.autopauseThreshold == 0) Some(false) else Some(true),
-              Some(cluster.autopauseThreshold),
-              cluster.defaultClientId,
-              cluster.clusterImages.find(_.tool == Jupyter).map(_.dockerImage))
-            val createFuture = leonardoService.internalCreateCluster(cluster.auditInfo.creator, cluster.serviceAccountInfo, cluster.googleProject, cluster.clusterName, clusterRequest)
-            createFuture.failed.foreach { e =>
-              logger.error(s"Error occurred recreating cluster ${cluster.projectNameString}", e)
-            }
-            createFuture
-          case None => Future.failed(new WorkbenchException(s"Cluster ${cluster.projectNameString} not found in the database"))
+        val recreateFuture = dbRef.inTransaction { dataAccess =>
+          for {
+            // TODO clear async fields
+            _ <- dataAccess.clusterQuery.updateClusterStatus(cluster.id, ClusterStatus.Creating)
+          } yield ()
+        }
+        recreateFuture.failed.foreach { e =>
+          logger.error(s"Error occurred recreating cluster ${cluster.projectNameString}", e)
         }
       } else {
         logger.warn(s"Received RecreateCluster message for cluster ${cluster.projectNameString} but cluster recreation is disabled.")

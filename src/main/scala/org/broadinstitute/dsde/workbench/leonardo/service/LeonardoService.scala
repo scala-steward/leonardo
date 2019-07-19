@@ -1,6 +1,5 @@
 package org.broadinstitute.dsde.workbench.leonardo.service
 
-import java.io.File
 import java.time.Instant
 
 import akka.actor.ActorSystem
@@ -11,11 +10,10 @@ import cats.implicits._
 import com.google.api.client.googleapis.json.GoogleJsonResponseException
 import com.google.api.client.http.HttpResponseException
 import com.typesafe.scalalogging.LazyLogging
-import org.broadinstitute.dsde.workbench.google.{GoogleIamDAO, GoogleProjectDAO, GoogleStorageDAO}
+import org.broadinstitute.dsde.workbench.google.GoogleStorageDAO
 import org.broadinstitute.dsde.workbench.leonardo._
 import org.broadinstitute.dsde.workbench.leonardo.config.{AutoFreezeConfig, ClusterDefaultsConfig, ClusterFilesConfig, ClusterResourcesConfig, DataprocConfig, ProxyConfig, SwaggerConfig}
 import org.broadinstitute.dsde.workbench.leonardo.dao.WelderDAO
-import org.broadinstitute.dsde.workbench.leonardo.dao.google.{GoogleComputeDAO, GoogleDataprocDAO}
 import org.broadinstitute.dsde.workbench.leonardo.db.{DataAccess, DbReference}
 import org.broadinstitute.dsde.workbench.leonardo.model.Cluster.LabelMap
 import org.broadinstitute.dsde.workbench.leonardo.model.ClusterTool.{Jupyter, RStudio, Welder}
@@ -24,22 +22,16 @@ import org.broadinstitute.dsde.workbench.leonardo.model.NotebookClusterActions._
 import org.broadinstitute.dsde.workbench.leonardo.model.ProjectActions._
 import org.broadinstitute.dsde.workbench.leonardo.model._
 import org.broadinstitute.dsde.workbench.leonardo.model.google.ClusterStatus.Stopped
-import org.broadinstitute.dsde.workbench.leonardo.model.google.DataprocRole._
 import org.broadinstitute.dsde.workbench.leonardo.model.google._
 import org.broadinstitute.dsde.workbench.leonardo.util.{BucketHelper, ClusterHelper}
 import org.broadinstitute.dsde.workbench.model.google._
-import org.broadinstitute.dsde.workbench.model.{ErrorReport, UserInfo, WorkbenchEmail}
+import org.broadinstitute.dsde.workbench.model.{UserInfo, WorkbenchEmail}
 import org.broadinstitute.dsde.workbench.util.Retry
 import slick.dbio.DBIO
 import spray.json._
 
-import scala.collection.immutable
-import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
-import scala.collection.JavaConverters._
-import scala.io.Source
-import scala.util.control.NonFatal
-import scala.util.{Failure, Success}
+import scala.concurrent.{ExecutionContext, Future}
 
 case class AuthorizationError(email: Option[WorkbenchEmail] = None)
   extends LeoException(s"${email.map(e => s"'${e.value}'").getOrElse("Your account")} is unauthorized", StatusCodes.Forbidden)
@@ -100,12 +92,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
                       protected val proxyConfig: ProxyConfig,
                       protected val swaggerConfig: SwaggerConfig,
                       protected val autoFreezeConfig: AutoFreezeConfig,
-//                      protected val gdDAO: GoogleDataprocDAO,
-//                      protected val googleComputeDAO: GoogleComputeDAO,
-//                      protected val googleIamDAO: GoogleIamDAO,
-//                      protected val googleProjectDAO: GoogleProjectDAO,
-//                      protected val leoGoogleStorageDAO: GoogleStorageDAO,
-//                      protected val petGoogleStorageDAO: String => GoogleStorageDAO,
+                      protected val petGoogleStorageDAO: String => GoogleStorageDAO,
                       protected val dbRef: DbReference,
                       protected val authProvider: LeoAuthProvider,
                       protected val serviceAccountProvider: ServiceAccountProvider,
@@ -117,25 +104,6 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
 
   private val bucketPathMaxLength = 1024
   private val includeDeletedKey = "includeDeleted"
-
-  // TODO should this move to ClusterHelper?
-  // Startup script to install on the cluster master node. This allows Jupyter to start back up after
-  // a cluster is resumed.
-  protected def getMasterInstanceStartupScript(welderEnabled: Boolean): immutable.Map[String, String] = {
-    val googleKey = "startup-script"  // required; see https://cloud.google.com/compute/docs/startupscript
-
-    // The || clause is included because older clusters may not have the run-jupyter.sh script installed,
-    // so we need to fall back running `jupyter notebook` directly. See https://github.com/DataBiosphere/leonardo/issues/481.
-    val jupyterStart = s"docker exec -d ${dataprocConfig.jupyterServerName} /bin/bash -c '/etc/jupyter/scripts/run-jupyter.sh || /usr/local/bin/jupyter notebook'"
-
-    val servicesStart = if (welderEnabled) {
-      val welderStart = s"docker exec -d ${dataprocConfig.welderServerName} /opt/docker/bin/entrypoint.sh"
-      s"($jupyterStart) && $welderStart"
-    }
-    else jupyterStart
-
-    immutable.Map(googleKey -> servicesStart)
-  }
 
   protected def checkProjectPermission(userInfo: UserInfo, action: ProjectAction, project: GoogleProject): Future[Unit] = {
     authProvider.hasProjectPermission(userInfo, action, project) map {
@@ -242,11 +210,9 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
                     clusterRequest: ClusterRequest): Future[Cluster] = {
     for {
       cluster <- internalGetActiveClusterDetails(googleProject, clusterName) //throws 404 if nonexistent
-
       _ <- checkClusterPermission(userInfo, ModifyCluster, cluster) //throws 404 if no auth
-
       updatedCluster <- internalUpdateCluster(cluster, clusterRequest)
-    } yield { updatedCluster }
+    } yield updatedCluster
   }
 
   def internalUpdateCluster(existingCluster: Cluster, clusterRequest: ClusterRequest) = {
@@ -325,20 +291,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
         logger.info(s"New machine config present. Resizing cluster '${existingCluster.projectNameString}'...")
 
         for {
-          // Add Dataproc Worker role to the cluster service account, if present.
-          // This is needed to be able to spin up Dataproc clusters.
-          // If the Google Compute default service account is being used, this is not necessary.
-          _ <- clusterHelper.addDataprocWorkerRoleToServiceAccount(existingCluster.googleProject, existingCluster.serviceAccountInfo.clusterServiceAccount)
-
-          // Resize the cluster
-          _ <- gdDAO.resizeCluster(existingCluster.googleProject, existingCluster.clusterName, updatedNumWorkersAndPreemptibles.left, updatedNumWorkersAndPreemptibles.right) recoverWith {
-            case gjre: GoogleJsonResponseException =>
-              //typically we will revoke this role in the monitor after everything is complete, but if Google fails to resize the cluster we need to revoke it manually here
-              clusterHelper.removeDataprocWorkerRoleFromServiceAccount(existingCluster.googleProject, existingCluster.serviceAccountInfo.clusterServiceAccount)
-
-              logger.info("did not successfully update cluster")
-              throw InvalidDataprocMachineConfigException(gjre.getMessage)
-          }
+          _ <- clusterHelper.resizeCluster(existingCluster, updatedNumWorkersAndPreemptibles.left, updatedNumWorkersAndPreemptibles.right)
 
           // Update the DB
           _ <- dbRef.inTransaction { dataAccess =>
@@ -366,19 +319,10 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
       case Some(updatedMasterMachineType) if existingCluster.status == Stopped =>
         logger.info(s"New machine config present. Changing machine type to ${updatedMasterMachineType} for cluster ${existingCluster.projectNameString}...")
 
-        Future.traverse(existingCluster.instances) { instance =>
-          instance.dataprocRole match {
-            case Some(Master) =>
-              googleComputeDAO.setMachineType(instance.key, MachineType(updatedMasterMachineType))
-            case _ =>
-              // Note: we don't support changing the machine type for worker instances. While this is possible
-              // in GCP, Spark settings are auto-tuned to machine size. Dataproc recommends adding or removing nodes,
-              // and rebuilding the cluster if new worker machine/disk sizes are needed.
-              Future.unit
-          }
-        }.flatMap { _ =>
-          dbRef.inTransaction { _.clusterQuery.updateMasterMachineType(existingCluster.id, MachineType(updatedMasterMachineType)) }
-        }.as(true)
+        for {
+          _ <- clusterHelper.setMasterMachineType(existingCluster, MachineType(updatedMasterMachineType))
+          _ <- dbRef.inTransaction { _.clusterQuery.updateMasterMachineType(existingCluster.id, MachineType(updatedMasterMachineType)) }
+        } yield true
 
       case Some(_) =>
         Future.failed(ClusterMachineTypeCannotBeChangedException(existingCluster))
@@ -400,19 +344,10 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
       case Some(updatedMasterDiskSize) if diskSizeIncreased(updatedMasterDiskSize) =>
         logger.info(s"New machine config present. Changing master disk size to $updatedMasterDiskSize GB for cluster ${existingCluster.projectNameString}...")
 
-        Future.traverse(existingCluster.instances) { instance =>
-          instance.dataprocRole match {
-            case Some(Master) =>
-              googleComputeDAO.resizeDisk(instance.key, updatedMasterDiskSize)
-            case _ =>
-              // Note: we don't support changing the machine type for worker instances. While this is possible
-              // in GCP, Spark settings are auto-tuned to machine size. Dataproc recommends adding or removing nodes,
-              // and rebuilding the cluster if new worker machine/disk sizes are needed.
-              Future.unit
-          }
-        }.flatMap { _ =>
-          dbRef.inTransaction { _.clusterQuery.updateMasterDiskSize(existingCluster.id, updatedMasterDiskSize) }
-        }.as(true)
+        for {
+          _ <- clusterHelper.updateMasterDiskSize(existingCluster, updatedMasterDiskSize)
+          _ <- dbRef.inTransaction { _.clusterQuery.updateMasterDiskSize(existingCluster.id, updatedMasterDiskSize) }
+        } yield true
 
       case Some(_) =>
         Future.failed(ClusterDiskSizeCannotBeDecreasedException(existingCluster))
@@ -431,7 +366,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
       _ <- checkClusterPermission(userInfo,  DeleteCluster, cluster, throw403 = true)
 
       _ <- internalDeleteCluster(userInfo.userEmail, cluster)
-    } yield { () }
+    } yield ()
   }
 
   //NOTE: This function MUST ALWAYS complete ALL steps. i.e. if deleting thing1 fails, it must still proceed to delete thing2
@@ -439,15 +374,15 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
     if (cluster.status.isDeletable) {
       for {
         // Delete the notebook service account key in Google, if present
-        _ <- removeServiceAccountKey(cluster.googleProject, cluster.clusterName, cluster.serviceAccountInfo.notebookServiceAccount).recover { case NonFatal(e) =>
-          logger.error(s"Error occurred removing service account key for ${cluster.googleProject} / ${cluster.clusterName}", e)
-        }
+        keyOpt <- dbRef.inTransaction { _.clusterQuery.getServiceAccountKeyId(cluster.googleProject, cluster.clusterName) }
+
         // Delete the cluster in Google
-        _ <- gdDAO.deleteCluster(cluster.googleProject, cluster.clusterName)
+        _ <- clusterHelper.deleteCluster(cluster, keyOpt)
+
         // Change the cluster status to Deleting in the database
         // Note this also changes the instance status to Deleting
         _ <- dbRef.inTransaction(dataAccess => dataAccess.clusterQuery.markPendingDeletion(cluster.id))
-      } yield { () }
+      } yield ()
     } else if (cluster.status == ClusterStatus.Creating) {
       Future.failed(ClusterCannotBeDeletedException(cluster.googleProject, cluster.clusterName))
     } else Future.unit
@@ -468,34 +403,15 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
   def internalStopCluster(cluster: Cluster): Future[Unit] = {
     if (cluster.status.isStoppable) {
       for {
-        // First remove all its preemptible instances in Google, if any
-        _ <- if (cluster.machineConfig.numberOfPreemptibleWorkers.exists(_ > 0))
-               gdDAO.resizeCluster(cluster.googleProject, cluster.clusterName, numPreemptibles = Some(0))
-             else Future.unit
-
         _ <- if(cluster.welderEnabled) {
           welderDao.flushCache(cluster.googleProject, cluster.clusterName).handleError(e => logger.error(s"fail to flush welder cache for ${cluster}"))
         }
-        else Future.unit
-        // Now stop each instance individually
-        _ <- Future.traverse(cluster.nonPreemptibleInstances) { instance =>
-          // Install a startup script on the master node so Jupyter starts back up again once the instance is restarted
-          instance.dataprocRole match {
-            case Some(Master) =>
-              if (cluster.clusterImages.map(_.tool) contains (Jupyter)) {
-                googleComputeDAO.addInstanceMetadata(instance.key, getMasterInstanceStartupScript(cluster.welderEnabled)).flatMap { _ =>
-                  googleComputeDAO.stopInstance(instance.key)
-                }
-              }
-              else googleComputeDAO.stopInstance(instance.key)
-            case _ =>
-              googleComputeDAO.stopInstance(instance.key)
-          }
-        }
+
+        _ <- clusterHelper.stopCluster(cluster)
 
         // Update the cluster status to Stopping
         _ <- dbRef.inTransaction { _.clusterQuery.setToStopping(cluster.id) }
-      } yield { }
+      } yield ()
 
     } else Future.failed(ClusterCannotBeStoppedException(cluster.googleProject, cluster.clusterName, cluster.status))
   }
@@ -515,19 +431,11 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
   def internalStartCluster(userEmail: WorkbenchEmail, cluster: Cluster): Future[Unit] = {
     if (cluster.status.isStartable) {
       for {
-        // Add back the preemptible instances
-        _ <- if (cluster.machineConfig.numberOfPreemptibleWorkers.exists(_ > 0))
-               gdDAO.resizeCluster(cluster.googleProject, cluster.clusterName, numPreemptibles = cluster.machineConfig.numberOfPreemptibleWorkers)
-             else Future.unit
-
-        // Start each instance individually
-        _ <- Future.traverse(cluster.nonPreemptibleInstances) { instance =>
-          googleComputeDAO.startInstance(instance.key)
-        }
+        _ <- clusterHelper.startCluster(cluster)
 
         // Update the cluster status to Starting
         _ <- dbRef.inTransaction { _.clusterQuery.updateClusterStatus(cluster.id, ClusterStatus.Starting) }
-      } yield { () }
+      } yield ()
 
     } else Future.failed(ClusterCannotBeStartedException(cluster.googleProject, cluster.clusterName, cluster.status))
   }
