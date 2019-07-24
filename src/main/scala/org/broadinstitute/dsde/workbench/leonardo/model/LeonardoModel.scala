@@ -26,20 +26,20 @@ import ca.mrvisser.sealerate
 
 // Create cluster API request
 final case class ClusterRequest(labels: LabelMap,
-                          jupyterExtensionUri: Option[GcsPath] = None,
-                          jupyterUserScriptUri: Option[GcsPath] = None,
-                          machineConfig: Option[MachineConfig] = None,
-                          properties: Map[String, String],
-                          stopAfterCreation: Option[Boolean] = None,
-                          userJupyterExtensionConfig: Option[UserJupyterExtensionConfig] = None,
-                          autopause: Option[Boolean] = None,
-                          autopauseThreshold: Option[Int] = None,
-                          defaultClientId: Option[String] = None,
-                          jupyterDockerImage: Option[String] = None,
-                          rstudioDockerImage: Option[String] = None,
-                          welderDockerImage: Option[String] = None,
-                          scopes: Set[String] = Set.empty,
-                          enableWelder: Option[Boolean] = None)
+                                jupyterExtensionUri: Option[GcsPath] = None,
+                                jupyterUserScriptUri: Option[GcsPath] = None,
+                                machineConfig: Option[MachineConfig] = None,
+                                properties: Map[String, String],
+                                stopAfterCreation: Option[Boolean] = None,
+                                userJupyterExtensionConfig: Option[UserJupyterExtensionConfig] = None,
+                                autopause: Option[Boolean] = None,
+                                autopauseThreshold: Option[Int] = None,
+                                defaultClientId: Option[String] = None,
+                                jupyterDockerImage: Option[String] = None,
+                                rstudioDockerImage: Option[String] = None,
+                                welderDockerImage: Option[String] = None,
+                                scopes: Set[String] = Set.empty,
+                                enableWelder: Option[Boolean] = None)
 
 
 case class UserJupyterExtensionConfig(nbExtensions: Map[String, String] = Map(),
@@ -89,27 +89,27 @@ case class ClusterImage(tool: ClusterTool,
 // The cluster itself
 // Also the API response for "list clusters" and "get active cluster"
 final case class Cluster(id: Long = 0, // DB AutoInc
-                   clusterName: ClusterName,
-                   googleProject: GoogleProject,
-                   serviceAccountInfo: ServiceAccountInfo,
-                   dataprocInfo: DataprocInfo,
-                   auditInfo: AuditInfo,
-                   machineConfig: MachineConfig,
-                   properties: Map[String, String],
-                   clusterUrl: URL,
-                   status: ClusterStatus,
-                   labels: LabelMap,
-                   jupyterExtensionUri: Option[GcsPath],
-                   jupyterUserScriptUri: Option[GcsPath],
-                   errors: List[ClusterError],
-                   instances: Set[Instance],
-                   userJupyterExtensionConfig: Option[UserJupyterExtensionConfig],
-                   autopauseThreshold: Int,
-                   defaultClientId: Option[String],
-                   stopAfterCreation: Boolean,
-                   clusterImages: Set[ClusterImage],
-                   scopes: Set[String],
-                   welderEnabled: Boolean) {
+                         clusterName: ClusterName,
+                         googleProject: GoogleProject,
+                         serviceAccountInfo: ServiceAccountInfo,
+                         dataprocInfo: DataprocInfo,
+                         auditInfo: AuditInfo,
+                         machineConfig: MachineConfig,
+                         properties: Map[String, String],
+                         clusterUrl: URL,
+                         status: ClusterStatus,
+                         labels: LabelMap,
+                         jupyterExtensionUri: Option[GcsPath],
+                         jupyterUserScriptUri: Option[GcsPath],
+                         errors: List[ClusterError],
+                         instances: Set[Instance],
+                         userJupyterExtensionConfig: Option[UserJupyterExtensionConfig],
+                         autopauseThreshold: Int,
+                         defaultClientId: Option[String],
+                         stopAfterCreation: Boolean,
+                         clusterImages: Set[ClusterImage],
+                         scopes: Set[String],
+                         welderEnabled: Boolean) {
   def projectNameString: String = s"${googleProject.value}/${clusterName.value}"
   def nonPreemptibleInstances: Set[Instance] = instances.filterNot(_.dataprocRole.contains(SecondaryWorker))
 }
@@ -149,7 +149,7 @@ object Cluster {
       stopAfterCreation = clusterRequest.stopAfterCreation.getOrElse(false),
       clusterImages = clusterImages,
       scopes = clusterScopes,
-      welderEnabled = clusterRequest.enableWelder.getOrElse(false))
+      welderEnabled = true)
   }
 
   // TODO it's hacky to re-parse the Leo config in the model object.
@@ -309,8 +309,8 @@ object ClusterInitValues {
       GcsPath(initBucketName, GcsObjectName(clusterResourcesConfig.jupyterNotebookConfigUri.value)).toUri,
       clusterRequest.userJupyterExtensionConfig.map(x => x.labExtensions.values.mkString(" ")).getOrElse(""),
       clusterRequest.defaultClientId.getOrElse(""),
-      clusterRequest.enableWelder.getOrElse(false).toString,  // TODO: remove this and conditional below when welder is rolled out to all clusters
-      if (clusterRequest.enableWelder.getOrElse(false)) dataprocConfig.welderEnabledNotebooksDir else dataprocConfig.welderDisabledNotebooksDir
+      "true",  // TODO: remove this and conditional below when welder is rolled out to all clusters
+      dataprocConfig.welderEnabledNotebooksDir
     )
 }
 
@@ -469,14 +469,14 @@ object LeonardoJsonSupport extends SprayJsonSupport with DefaultJsonProtocol {
             fields.getOrElse("googleProject", JsNull).convertTo[GoogleProject],
             fields.getOrElse("serviceAccountInfo", JsNull).convertTo[ServiceAccountInfo],
             DataprocInfo(fields.getOrElse("googleId", JsNull).convertTo[Option[UUID]],
-                         fields.getOrElse("operationName", JsNull).convertTo[Option[OperationName]],
-                         fields.getOrElse("stagingBucket", JsNull).convertTo[Option[GcsBucketName]],
-                         fields.getOrElse("hostIp", JsNull).convertTo[Option[IP]]),
+              fields.getOrElse("operationName", JsNull).convertTo[Option[OperationName]],
+              fields.getOrElse("stagingBucket", JsNull).convertTo[Option[GcsBucketName]],
+              fields.getOrElse("hostIp", JsNull).convertTo[Option[IP]]),
             AuditInfo(fields.getOrElse("creator", JsNull).convertTo[WorkbenchEmail],
-                      fields.getOrElse("createdDate", JsNull).convertTo[Instant],
-                      fields.getOrElse("destroyedDate", JsNull).convertTo[Option[Instant]],
-                      fields.getOrElse("dateAccessed", JsNull).convertTo[Instant],
-                      fields.getOrElse("kernelFoundBusyDate", JsNull).convertTo[Option[Instant]]),
+              fields.getOrElse("createdDate", JsNull).convertTo[Instant],
+              fields.getOrElse("destroyedDate", JsNull).convertTo[Option[Instant]],
+              fields.getOrElse("dateAccessed", JsNull).convertTo[Instant],
+              fields.getOrElse("kernelFoundBusyDate", JsNull).convertTo[Option[Instant]]),
             fields.getOrElse("machineConfig", JsNull).convertTo[MachineConfig],
             fields.getOrElse("properties", JsNull).convertTo[Option[Map[String, String]]].getOrElse(Map.empty),
             fields.getOrElse("clusterUrl", JsNull).convertTo[URL],
