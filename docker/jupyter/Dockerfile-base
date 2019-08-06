@@ -1,5 +1,7 @@
 # adapted from https://hub.docker.com/r/jupyter/base-notebook/ AKA https://github.com/jupyter/docker-stacks/tree/master/base-notebook
 
+# this is jmthibault79/leonardo-jupyter-base:joel-tmp-20190808-1
+
 FROM debian:stretch
 
 USER root
@@ -75,47 +77,6 @@ RUN echo "deb $DEBIAN_REPO/debian stretch main"                   > /etc/apt/sou
 ENV LC_ALL en_US.UTF-8
 
 #######################
-# GATK
-#######################
-
-RUN set -e
-ENV GATK_VERSION 4.1.0.0
-ENV GATK_ZIP_PATH /tmp/gatk-${GATK_VERSION}.zip
-
- #download the gatk zip
-RUN curl -L -o $GATK_ZIP_PATH https://github.com/broadinstitute/gatk/releases/download/$GATK_VERSION/gatk-$GATK_VERSION.zip \
- && unzip -o $GATK_ZIP_PATH -d /etc/ \
- && ln -s /etc/gatk-$GATK_VERSION/gatk /bin/gatk
-
-##############################
-# Spark / Hadoop / Hive / Hail
-##############################
-
-# Use Spark 2.2.0 which corresponds to Dataproc 1.2. See:
-#   https://cloud.google.com/dataproc/docs/concepts/versioning/dataproc-versions
-# Note: we are actually using Spark 2.2.1, but the Hail package is built using 2.2.0
-ENV SPARK_VER 2.2.0
-ENV SPARK_HOME=/usr/lib/spark
-
-# result of `gsutil cat gs://hail-common/builds/0.2/latest-hash/cloudtools-3-spark-2.2.0.txt` on 26 March 2019
-ENV HAILHASH daed180b84d8
-ENV HAILJAR hail-0.2-$HAILHASH-Spark-$SPARK_VER.jar
-ENV HAILPYTHON hail-0.2-$HAILHASH.zip
-ENV HAIL_HOME /etc/hail
-ENV KERNELSPEC_HOME /usr/local/share/jupyter/kernels
-
-# Note Spark and Hadoop are mounted from the outside Dataproc VM.
-# Make empty conf dirs for the update-alternatives commands.
-RUN mkdir -p /etc/spark/conf.dist && mkdir -p /etc/hadoop/conf.empty && mkdir -p /etc/hive/conf.dist \
- && update-alternatives --install /etc/spark/conf spark-conf /etc/spark/conf.dist 100 \
- && update-alternatives --install /etc/hadoop/conf hadoop-conf /etc/hadoop/conf.empty 100 \
- && update-alternatives --install /etc/hive/conf hive-conf /etc/hive/conf.dist 100 \
- && mkdir $HAIL_HOME && cd $HAIL_HOME \
- && wget -nv http://storage.googleapis.com/hail-common/builds/0.2/jars/$HAILJAR \
- && wget -nv http://storage.googleapis.com/hail-common/builds/0.2/python/$HAILPYTHON \
- && cd -
-
-#######################
 # Python / Jupyter
 #######################
 
@@ -133,9 +94,13 @@ ENV WELDER_UID 1001
 # ensure this matches c.NotebookApp.port in jupyter_notebook_config.py
 ENV JUPYTER_PORT 8000
 ENV JUPYTER_HOME /etc/jupyter
+
+# TODO this should really not be in base
+
 ENV PYSPARK_DRIVER_PYTHON jupyter
 ENV PYSPARK_DRIVER_PYTHON_OPTS notebook
 
+ENV SPARK_HOME=/usr/lib/spark
 ENV PATH $SPARK_HOME:$SPARK_HOME/python:$SPARK_HOME/bin:$HAIL_HOME:$PATH
 ENV PYTHONPATH $PYTHONPATH:$HAIL_HOME/$HAILPYTHON:$HAIL_HOME/python:$SPARK_HOME/python:$JUPYTER_HOME/custom
 
@@ -328,7 +293,8 @@ RUN apt-get update \
  && pip3 install python-datauri \
  && pip3 install jupyter_contrib_nbextensions \
  && pip3 install jupyter_nbextensions_configurator \
- && pip3 install /etc/gatk-$GATK_VERSION/gatkPythonPackageArchive.zip \
+# removed by joel
+# && pip3 install /etc/gatk-$GATK_VERSION/gatkPythonPackageArchive.zip \
  && pip3 install cookiecutter \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
@@ -336,52 +302,6 @@ RUN apt-get update \
 # make pip install to a user directory, instead of a system directory which requires root.
 # this is useful so `pip install` commands can be run in the context of a notebook.
 ENV PIP_USER=true
-
-#######################
-# R Kernel
-#######################
-
-# using aptitude for R packages so that all dependencies are automatically installed
-RUN aptitude update && aptitude install -y apt-utils \
- && aptitude update && aptitude -t stretch-cran35 install -y \
-    r-base=3.5.2-1 \
-    r-base-dev=3.5.2-1 \
-    r-base-core=3.5.2-1 \
-    r-recommended=3.5.2-1 \
- && aptitude install -t stretch-cran35 -y \
-    fonts-dejavu \
-    tzdata \
-    gfortran \
-    gcc \
-    libcurl4 \
-    libcurl4-openssl-dev \
-    libssl-dev \
-    libxml2-dev \
- && aptitude clean \
- && rm -rf /var/lib/apt/lists/* \
- # fixes broken gfortan dependency needed by some R libraries
- # see: https://github.com/DataBiosphere/leonardo/issues/710
- && ln -s /usr/lib/x86_64-linux-gnu/libgfortran.so.5 /usr/lib/x86_64-linux-gnu/libgfortran.so
-
-RUN R -e 'install.packages(c( \
-    "IRdisplay",  \
-    "evaluate",  \
-    "pbdZMQ",  \
-    "devtools",  \
-    "uuid",  \
-    "reshape2",  \
-    "bigrquery",  \
-    "googleCloudStorageR", \
-    "tidyverse"), \
-    repos="http://cran.mtu.edu")' \
- && R -e 'devtools::install_github("DataBiosphere/Ronaldo")' \
- && R -e 'devtools::install_github("IRkernel/IRkernel")' \
- && R -e 'IRkernel::installspec(user=FALSE)' \
- && chown -R $USER:users /home/jupyter-user/.local  \
- && R -e 'devtools::install_github("apache/spark@v2.2.3", subdir="R/pkg")' \
- && mkdir -p /home/jupyter-user/.rpackages \
- && echo "R_LIBS=/home/jupyter-user/.rpackages" > /home/jupyter-user/.Renviron \
- && chown -R $USER:users /home/jupyter-user/.rpackages
 
 #######################
 # Utilities
@@ -394,8 +314,13 @@ ADD custom/jupyter_localize_extension.py $JUPYTER_HOME/custom/
 RUN chown -R $USER:users $JUPYTER_HOME \
  && find $JUPYTER_HOME/scripts -name '*.sh' -type f | xargs chmod +x \
  && chown -R $USER:users /usr/local/share/jupyter/lab \
- && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-6 200 \
- && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-8 100
+ && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-6 200
+
+# removed by joel because: "alternative path /usr/bin/gcc-8 doesn't exist"
+# I think this is OK because gcc-6 is what we actually want
+# and it looks like it was CRAN (R) that was selecting gcc-8
+
+# && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-8 100
 
 USER $USER
 WORKDIR $HOME

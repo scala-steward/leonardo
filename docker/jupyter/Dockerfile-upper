@@ -1,0 +1,102 @@
+# adapted from https://hub.docker.com/r/jupyter/base-notebook/ AKA https://github.com/jupyter/docker-stacks/tree/master/base-notebook
+
+FROM jmthibault79/leonardo-jupyter-base:joel-tmp-20190808-1
+
+# clearing some state set by the parent
+USER root
+WORKDIR /
+
+#######################
+# GATK
+#######################
+
+RUN set -e
+ENV GATK_VERSION 4.1.0.0
+ENV GATK_ZIP_PATH /tmp/gatk-${GATK_VERSION}.zip
+
+# temp joel
+# this was removed from the other but is failing here
+# removing for now, but see https://github.com/DataBiosphere/leonardo/issues/414 for context
+# RUN pip3 install /etc/gatk-$GATK_VERSION/gatkPythonPackageArchive.zip
+
+ #download the gatk zip
+RUN curl -L -o $GATK_ZIP_PATH https://github.com/broadinstitute/gatk/releases/download/$GATK_VERSION/gatk-$GATK_VERSION.zip \
+ && unzip -o $GATK_ZIP_PATH -d /etc/ \
+ && ln -s /etc/gatk-$GATK_VERSION/gatk /bin/gatk
+
+##############################
+# Spark / Hadoop / Hive / Hail
+##############################
+
+# Use Spark 2.2.0 which corresponds to Dataproc 1.2. See:
+#   https://cloud.google.com/dataproc/docs/concepts/versioning/dataproc-versions
+# Note: we are actually using Spark 2.2.1, but the Hail package is built using 2.2.0
+ENV SPARK_VER 2.2.0
+ENV SPARK_HOME=/usr/lib/spark
+
+# result of `gsutil cat gs://hail-common/builds/0.2/latest-hash/cloudtools-3-spark-2.2.0.txt` on 26 March 2019
+ENV HAILHASH daed180b84d8
+ENV HAILJAR hail-0.2-$HAILHASH-Spark-$SPARK_VER.jar
+ENV HAILPYTHON hail-0.2-$HAILHASH.zip
+ENV HAIL_HOME /etc/hail
+ENV KERNELSPEC_HOME /usr/local/share/jupyter/kernels
+
+# Note Spark and Hadoop are mounted from the outside Dataproc VM.
+# Make empty conf dirs for the update-alternatives commands.
+RUN mkdir -p /etc/spark/conf.dist && mkdir -p /etc/hadoop/conf.empty && mkdir -p /etc/hive/conf.dist \
+ && update-alternatives --install /etc/spark/conf spark-conf /etc/spark/conf.dist 100 \
+ && update-alternatives --install /etc/hadoop/conf hadoop-conf /etc/hadoop/conf.empty 100 \
+ && update-alternatives --install /etc/hive/conf hive-conf /etc/hive/conf.dist 100 \
+ && mkdir $HAIL_HOME && cd $HAIL_HOME \
+ && wget -nv http://storage.googleapis.com/hail-common/builds/0.2/jars/$HAILJAR \
+ && wget -nv http://storage.googleapis.com/hail-common/builds/0.2/python/$HAILPYTHON \
+ && cd -
+
+#######################
+# R Kernel
+#######################
+
+# using aptitude for R packages so that all dependencies are automatically installed
+RUN aptitude update && aptitude install -y apt-utils \
+ && aptitude update && aptitude -t stretch-cran35 install -y \
+    r-base=3.5.2-1 \
+    r-base-dev=3.5.2-1 \
+    r-base-core=3.5.2-1 \
+    r-recommended=3.5.2-1 \
+ && aptitude install -t stretch-cran35 -y \
+    fonts-dejavu \
+    tzdata \
+    gfortran \
+    gcc \
+    libcurl4 \
+    libcurl4-openssl-dev \
+    libssl-dev \
+    libxml2-dev \
+ && aptitude clean \
+ && rm -rf /var/lib/apt/lists/* \
+ # fixes broken gfortan dependency needed by some R libraries
+ # see: https://github.com/DataBiosphere/leonardo/issues/710
+ && ln -s /usr/lib/x86_64-linux-gnu/libgfortran.so.5 /usr/lib/x86_64-linux-gnu/libgfortran.so
+
+RUN R -e 'install.packages(c( \
+    "IRdisplay",  \
+    "evaluate",  \
+    "pbdZMQ",  \
+    "devtools",  \
+    "uuid",  \
+    "reshape2",  \
+    "bigrquery",  \
+    "googleCloudStorageR", \
+    "tidyverse"), \
+    repos="http://cran.mtu.edu")' \
+ && R -e 'devtools::install_github("DataBiosphere/Ronaldo")' \
+ && R -e 'devtools::install_github("IRkernel/IRkernel")' \
+ && R -e 'IRkernel::installspec(user=FALSE)' \
+ && chown -R $USER:users /home/jupyter-user/.local  \
+ && R -e 'devtools::install_github("apache/spark@v2.2.3", subdir="R/pkg")' \
+ && mkdir -p /home/jupyter-user/.rpackages \
+ && echo "R_LIBS=/home/jupyter-user/.rpackages" > /home/jupyter-user/.Renviron \
+ && chown -R $USER:users /home/jupyter-user/.rpackages
+
+USER $USER
+WORKDIR $HOME
