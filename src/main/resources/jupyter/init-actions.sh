@@ -236,7 +236,8 @@ if [[ "${ROLE}" == 'Master' ]]; then
       log 'Installing Hail additions to Jupydocker spark.conf...'
 
       # Install the Hail additions to Spark conf.
-      retry 3 docker exec -u root ${JUPYTER_SERVER_NAME} ${JUPYTER_SCRIPTS}/hail/spark_install_hail.sh
+      # temp disable hackathon
+      #retry 3 docker exec -u root ${JUPYTER_SERVER_NAME} ${JUPYTER_SCRIPTS}/hail/spark_install_hail.sh
 
       #Install NbExtensions
       if [ ! -z "${JUPYTER_NB_EXTENSIONS}" ] ; then
