@@ -361,7 +361,8 @@ if [[ "${ROLE}" == 'Master' ]]; then
       fi
 
        retry 5 docker exec -u root ${JUPYTER_SERVER_NAME} chown -R jupyter-user:users ${JUPYTER_HOME}
-       retry 5 docker exec -u root ${JUPYTER_SERVER_NAME} chown -R jupyter-user:users /usr/local/share/jupyter/lab
+# disable for hackathon
+#       retry 5 docker exec -u root ${JUPYTER_SERVER_NAME} chown -R jupyter-user:users /usr/local/share/jupyter/lab
 
       #Install lab extensions
       #Note: lab extensions need to installed as jupyter user, not root
