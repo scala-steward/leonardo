@@ -159,10 +159,6 @@ class ClusterMonitorActor(val cluster: Cluster,
       _ <- persistInstances(instances)
       // update DB after auth futures finish
       _ <- dbRef.inTransaction { _.clusterQuery.setToRunning(cluster.id, publicIp) }
-      // Remove the Dataproc Worker IAM role for the cluster service account.
-      // Only happens if the cluster was created with a service account other
-      // than the compute engine default service account.
-      _ <- if (clusterStatus == ClusterStatus.Creating || clusterStatus == ClusterStatus.Updating) removeIamRolesForUser else Future.successful(())
       // Record metrics in NewRelic
       _ <- recordMetrics(clusterStatus, ClusterStatus.Running).unsafeToFuture()
     } yield {
@@ -244,6 +240,9 @@ class ClusterMonitorActor(val cluster: Cluster,
 
       // set the staging bucket to be deleted in ten days so that logs are still accessible until then
       _ <- setStagingBucketLifecycle
+
+      // Remove IAM roles we added to facilitate cluster creation
+      _ <- removeIamRolesForUser
 
       // delete instances in the DB
       _ <- persistInstances(Set.empty)
