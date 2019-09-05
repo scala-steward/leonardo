@@ -102,7 +102,7 @@ if [[ "${ROLE}" == 'Master' ]]; then
     # The following values are populated by Leo when a cluster is created.
     export CLUSTER_NAME=$(clusterName)
     export GOOGLE_PROJECT=$(googleProject)
-    export OWNER_EMAIL=$(loginHint)
+    export OWNER_EMAIL=$(userEmailLoginHint)
     export JUPYTER_SERVER_NAME=$(jupyterServerName)
     export RSTUDIO_SERVER_NAME=$(rstudioServerName)
     export PROXY_SERVER_NAME=$(proxyServerName)
