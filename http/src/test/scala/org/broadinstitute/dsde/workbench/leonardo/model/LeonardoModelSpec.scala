@@ -183,7 +183,7 @@ class LeonardoModelSpec extends TestComponent with FlatSpecLike with Matchers wi
   }
 
   it should "create a map of ClusterInitValues object" in isolatedDbTest {
-    val clusterInit = ClusterInitValues(project, name1, initBucketPath, testClusterRequestWithExtensionAndScript, dataprocConfig, clusterFilesConfig, clusterResourcesConfig, proxyConfig, Some(serviceAccountKey), userInfo.userEmail, contentSecurityPolicy, Set(jupyterImage, welderImage), stagingBucketName, true)
+    val clusterInit = ClusterInitValues(cluster, initBucketPath, Some(serviceAccountKey), dataprocConfig, proxyConfig, clusterFilesConfig, clusterResourcesConfig, contentSecurityPolicy)
     val clusterInitMap = clusterInit.toMap
 
     clusterInitMap("googleProject") shouldBe project.value

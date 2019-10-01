@@ -15,7 +15,7 @@ import com.google.api.client.googleapis.json.GoogleJsonResponseException
 import com.google.api.client.http.HttpResponseException
 import com.typesafe.scalalogging.LazyLogging
 import org.broadinstitute.dsde.workbench.google.GoogleStorageDAO
-import org.broadinstitute.dsde.workbench.leonardo.config.{AutoFreezeConfig, ClusterDefaultsConfig, ClusterFilesConfig, ClusterResourcesConfig, DataprocConfig, ProxyConfig, SwaggerConfig}
+import org.broadinstitute.dsde.workbench.leonardo.config.{AutoFreezeConfig, ClusterDefaultsConfig, DataprocConfig, ProxyConfig, SwaggerConfig}
 import org.broadinstitute.dsde.workbench.leonardo.dao.WelderDAO
 import org.broadinstitute.dsde.workbench.leonardo.dao.google._
 import org.broadinstitute.dsde.workbench.leonardo.db.DbReference
@@ -89,8 +89,6 @@ case class InvalidDataprocMachineConfigException(errorMsg: String)
 
 class LeonardoService(protected val dataprocConfig: DataprocConfig,
                       protected val welderDao: WelderDAO,
-                      protected val clusterFilesConfig: ClusterFilesConfig,
-                      protected val clusterResourcesConfig: ClusterResourcesConfig,
                       protected val clusterDefaultsConfig: ClusterDefaultsConfig,
                       protected val proxyConfig: ProxyConfig,
                       protected val swaggerConfig: SwaggerConfig,
@@ -100,8 +98,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
                       protected val authProvider: LeoAuthProvider,
                       protected val serviceAccountProvider: ServiceAccountProvider,
                       protected val bucketHelper: BucketHelper,
-                      protected val clusterHelper: ClusterHelper,
-                      protected val contentSecurityPolicy: String)
+                      protected val clusterHelper: ClusterHelper)
                      (implicit val executionContext: ExecutionContext,
                       implicit override val system: ActorSystem,
                       timer: Timer[IO],
@@ -172,7 +169,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
     val autopauseThreshold = calculateAutopauseThreshold(
       clusterRequest.autopause, clusterRequest.autopauseThreshold)
     val clusterScopes = if (clusterRequest.scopes.isEmpty) dataprocConfig.defaultScopes else clusterRequest.scopes
-    val initialClusterToSave = Cluster.createInitial(
+    val initialClusterToSave = Cluster.create(
       augmentedClusterRequest, internalId, userEmail, clusterName, googleProject,
       serviceAccountInfo, machineConfig, dataprocConfig.clusterUrlBase, autopauseThreshold, clusterScopes,
       clusterImages = clusterImages)

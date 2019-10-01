@@ -163,17 +163,17 @@ final case class Cluster(id: Long = 0, // DB AutoInc
 object Cluster {
   type LabelMap = Map[String, String]
 
-  def createInitial(clusterRequest: ClusterRequest,
-                    internalId: ClusterInternalId,
-                    userEmail: WorkbenchEmail,
-                    clusterName: ClusterName,
-                    googleProject: GoogleProject,
-                    serviceAccountInfo: ServiceAccountInfo,
-                    machineConfig: MachineConfig,
-                    clusterUrlBase: String,
-                    autopauseThreshold: Int,
-                    clusterScopes: Set[String],
-                    clusterImages: Set[ClusterImage] = Set.empty): Cluster = {
+  def create(clusterRequest: ClusterRequest,
+             internalId: ClusterInternalId,
+             userEmail: WorkbenchEmail,
+             clusterName: ClusterName,
+             googleProject: GoogleProject,
+             serviceAccountInfo: ServiceAccountInfo,
+             machineConfig: MachineConfig,
+             clusterUrlBase: String,
+             autopauseThreshold: Int,
+             clusterScopes: Set[String],
+             clusterImages: Set[ClusterImage] = Set.empty): Cluster = {
     Cluster(
       internalId = internalId,
       clusterName = clusterName,
@@ -199,7 +199,7 @@ object Cluster {
       welderEnabled = clusterRequest.enableWelder.getOrElse(false))
   }
 
-  def createFinal(cluster: Cluster, operation: Operation, stagingBucket: GcsBucketName): Cluster = {
+  def addDataprocFields(cluster: Cluster, operation: Operation, stagingBucket: GcsBucketName): Cluster = {
     cluster.copy(
       dataprocInfo = DataprocInfo(Option(operation.uuid), Option(operation.name), Option(stagingBucket), None)
     )

@@ -243,7 +243,7 @@ class ClusterHelper(dbRef: DbReference,
         initScriptResources = if (dataprocConfig.customDataprocImage.isEmpty) List(clusterResourcesConfig.initVmScript, clusterResourcesConfig.initActionsScript) else List(clusterResourcesConfig.initActionsScript)
         initScripts = initScriptResources.map(resource => GcsPath(initBucketName, GcsObjectName(resource.value)))
         credentialsFileName = cluster.serviceAccountInfo.notebookServiceAccount.map(_ => s"/etc/${ClusterInitValues.serviceAccountCredentialsFilename}")
-        
+
         // Create the cluster
         createClusterConfig = CreateClusterConfig(machineConfig, initScripts, cluster.serviceAccountInfo.clusterServiceAccount, credentialsFileName, stagingBucketName, cluster.scopes, clusterVPCSettings, cluster.properties, dataprocConfig.customDataprocImage)
         retryResult <- IO.fromFuture(IO(retryExponentially(whenGoogleZoneCapacityIssue, "Cluster creation failed because zone with adequate resources was not found") { () =>
@@ -260,7 +260,7 @@ class ClusterHelper(dbRef: DbReference,
               .flatMap(_ => IO.raiseError(errors.head))
         }
 
-        finalCluster = Cluster.createFinal(cluster, operation, stagingBucketName)
+        finalCluster = Cluster.addDataprocFields(cluster, operation, stagingBucketName)
 
       } yield (finalCluster, initBucketName, serviceAccountKeyOpt)
 
@@ -363,7 +363,7 @@ class ClusterHelper(dbRef: DbReference,
     Stream(uploadRawFiles, uploadRawResources, uploadTemplatedResources, uploadPrivateKey).parJoin(4)
   }
 
-  private def getClusterVPCSettings(projectLabels: Map[String, String]): Option[VPCConfig] = {
+  private[leonardo] def getClusterVPCSettings(projectLabels: Map[String, String]): Option[VPCConfig] = {
     //Dataproc only allows you to specify a subnet OR a network. Subnets will be preferred if present.
     //High-security networks specified inside of the project will always take precedence over anything
     //else. Thus, VPC configuration takes the following precedence:

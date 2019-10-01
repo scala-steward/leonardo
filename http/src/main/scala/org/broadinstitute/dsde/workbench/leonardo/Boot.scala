@@ -88,7 +88,7 @@ object Boot extends IOApp with LazyLogging {
         val welderDao = new HttpWelderDAO(clusterDnsCache)
         val bucketHelper = new BucketHelper(dataprocConfig, gdDAO, googleComputeDAO, googleStorageDAO, appDependencies.google2StorageDao, serviceAccountProvider)
         val clusterHelper = new ClusterHelper(dbRef, dataprocConfig, proxyConfig, clusterResourcesConfig, clusterFilesConfig, bucketHelper, gdDAO, googleComputeDAO, googleIamDAO, googleProjectDAO, contentSecurityPolicy)
-        val leonardoService = new LeonardoService(dataprocConfig, welderDao, clusterFilesConfig, clusterResourcesConfig, clusterDefaultsConfig, proxyConfig, swaggerConfig, autoFreezeConfig, petGoogleStorageDAO, dbRef, authProvider, serviceAccountProvider, bucketHelper, clusterHelper, contentSecurityPolicy)
+        val leonardoService = new LeonardoService(dataprocConfig, welderDao, clusterDefaultsConfig, proxyConfig, swaggerConfig, autoFreezeConfig, petGoogleStorageDAO, dbRef, authProvider, serviceAccountProvider, bucketHelper, clusterHelper)
         if(leoExecutionModeConfig.backLeo) {
           val jupyterDAO = new HttpJupyterDAO(clusterDnsCache)
           val rstudioDAO = new HttpRStudioDAO(clusterDnsCache)

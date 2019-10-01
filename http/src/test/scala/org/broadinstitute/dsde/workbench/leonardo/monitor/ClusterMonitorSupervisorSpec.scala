@@ -6,6 +6,7 @@ import java.time.temporal.ChronoUnit
 import akka.actor.ActorSystem
 import akka.testkit.TestKit
 import cats.effect.IO
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import org.broadinstitute.dsde.workbench.google.mock.MockGoogleStorageDAO
 import org.broadinstitute.dsde.workbench.google.{GoogleIamDAO, GoogleProjectDAO, GoogleStorageDAO}
 import org.broadinstitute.dsde.workbench.leonardo.dao.google.{GoogleComputeDAO, GoogleDataprocDAO}
@@ -30,6 +31,7 @@ class ClusterMonitorSupervisorSpec extends TestKit(ActorSystem("leonardotest"))
 
   implicit val cs = IO.contextShift(system.dispatcher)
   implicit val timer = IO.timer(system.dispatcher)
+  implicit def unsafeLogger = Slf4jLogger.getLogger[IO]
 
   override def afterAll(): Unit = {
     TestKit.shutdownActorSystem(system)
@@ -56,17 +58,15 @@ class ClusterMonitorSupervisorSpec extends TestKit(ActorSystem("leonardotest"))
       new MockGoogleStorageDAO
     }
 
-    val bucketHelper = new BucketHelper(dataprocConfig, gdDAO, computeDAO, storageDAO, serviceAccountProvider)
+    val bucketHelper = new BucketHelper(dataprocConfig, gdDAO, computeDAO, storageDAO, FakeGoogleStorageService, serviceAccountProvider)
 
-    val clusterHelper = new ClusterHelper(DbSingleton.ref, dataprocConfig, gdDAO, computeDAO, iamDAO)
+    val clusterHelper = new ClusterHelper(DbSingleton.ref, dataprocConfig, proxyConfig, clusterResourcesConfig, clusterFilesConfig, bucketHelper, gdDAO, computeDAO, iamDAO, projectDAO, contentSecurityPolicy)
 
-    val leoService = new LeonardoService(dataprocConfig, MockWelderDAO, clusterFilesConfig, clusterResourcesConfig,
-      clusterDefaultsConfig, proxyConfig, swaggerConfig, autoFreezeConfig, gdDAO, computeDAO, projectDAO,
-      storageDAO, mockPetGoogleStorageDAO, DbSingleton.ref, whitelistAuthProvider, serviceAccountProvider,
-      bucketHelper, clusterHelper, contentSecurityPolicy)
+    val leoService = new LeonardoService(dataprocConfig, MockWelderDAO, clusterDefaultsConfig, proxyConfig, swaggerConfig, autoFreezeConfig,
+      mockPetGoogleStorageDAO, DbSingleton.ref, whitelistAuthProvider, serviceAccountProvider, bucketHelper, clusterHelper)
 
     val clusterSupervisorActor = system.actorOf(ClusterMonitorSupervisor.props(monitorConfig, dataprocConfig, clusterBucketConfig, gdDAO,
-      computeDAO, storageDAO, FakeGoogleStorageService, DbSingleton.ref, authProvider, autoFreezeConfig, MockJupyterDAO, MockRStudioDAO, MockWelderDAO, leoService, clusterHelper))
+      computeDAO, storageDAO, FakeGoogleStorageService, DbSingleton.ref, authProvider, autoFreezeConfig, MockJupyterDAO, MockRStudioDAO, MockWelderDAO, clusterHelper))
 
     eventually(timeout(Span(30, Seconds))) {
       val c1 = dbFutureValue { _.clusterQuery.getClusterById(runningCluster.id) }
@@ -101,17 +101,16 @@ class ClusterMonitorSupervisorSpec extends TestKit(ActorSystem("leonardotest"))
       new MockGoogleStorageDAO
     }
 
-    val bucketHelper = new BucketHelper(dataprocConfig, gdDAO, computeDAO, storageDAO, serviceAccountProvider)
+    val bucketHelper = new BucketHelper(dataprocConfig, gdDAO, computeDAO, storageDAO, FakeGoogleStorageService, serviceAccountProvider)
 
-    val clusterHelper = new ClusterHelper(DbSingleton.ref, dataprocConfig, gdDAO, computeDAO, iamDAO)
+    val clusterHelper = new ClusterHelper(DbSingleton.ref, dataprocConfig, proxyConfig, clusterResourcesConfig, clusterFilesConfig, bucketHelper, gdDAO, computeDAO, iamDAO, projectDAO, contentSecurityPolicy)
 
-    val leoService = new LeonardoService(dataprocConfig, MockWelderDAO, clusterFilesConfig, clusterResourcesConfig,
-      clusterDefaultsConfig, proxyConfig, swaggerConfig, autoFreezeConfig, gdDAO, computeDAO, projectDAO,
-      storageDAO, mockPetGoogleStorageDAO, DbSingleton.ref, whitelistAuthProvider, serviceAccountProvider,
-      bucketHelper, clusterHelper, contentSecurityPolicy)
+    val leoService = new LeonardoService(dataprocConfig, MockWelderDAO, clusterDefaultsConfig, proxyConfig,
+      swaggerConfig, autoFreezeConfig, mockPetGoogleStorageDAO, DbSingleton.ref, whitelistAuthProvider, serviceAccountProvider,
+      bucketHelper, clusterHelper)
 
     val clusterSupervisorActor = system.actorOf(ClusterMonitorSupervisor.props(monitorConfig, dataprocConfig, clusterBucketConfig, gdDAO,
-      computeDAO, storageDAO, FakeGoogleStorageService, DbSingleton.ref, authProvider, autoFreezeConfig, jupyterProxyDAO, MockRStudioDAO, MockWelderDAO, leoService, clusterHelper))
+      computeDAO, storageDAO, FakeGoogleStorageService, DbSingleton.ref, authProvider, autoFreezeConfig, jupyterProxyDAO, MockRStudioDAO, MockWelderDAO, clusterHelper))
 
     eventually(timeout(Span(30, Seconds))) {
       val c1 = dbFutureValue { _.clusterQuery.getClusterById(runningCluster.id) }
@@ -140,17 +139,16 @@ class ClusterMonitorSupervisorSpec extends TestKit(ActorSystem("leonardotest"))
       new MockGoogleStorageDAO
     }
 
-    val bucketHelper = new BucketHelper(dataprocConfig, gdDAO, computeDAO, storageDAO, serviceAccountProvider)
+    val bucketHelper = new BucketHelper(dataprocConfig, gdDAO, computeDAO, storageDAO, FakeGoogleStorageService, serviceAccountProvider)
 
-    val clusterHelper = new ClusterHelper(DbSingleton.ref, dataprocConfig, gdDAO, computeDAO, iamDAO)
+    val clusterHelper = new ClusterHelper(DbSingleton.ref, dataprocConfig, proxyConfig, clusterResourcesConfig, clusterFilesConfig, bucketHelper, gdDAO, computeDAO, iamDAO, projectDAO, contentSecurityPolicy)
 
-    val leoService = new LeonardoService(dataprocConfig, MockWelderDAO, clusterFilesConfig, clusterResourcesConfig,
-      clusterDefaultsConfig, proxyConfig, swaggerConfig, autoFreezeConfig, gdDAO, computeDAO, projectDAO,
-      storageDAO, mockPetGoogleStorageDAO, DbSingleton.ref, whitelistAuthProvider, serviceAccountProvider,
-      bucketHelper, clusterHelper, contentSecurityPolicy)
+    val leoService = new LeonardoService(dataprocConfig, MockWelderDAO, clusterDefaultsConfig, proxyConfig, swaggerConfig,
+      autoFreezeConfig, mockPetGoogleStorageDAO, DbSingleton.ref, whitelistAuthProvider, serviceAccountProvider,
+      bucketHelper, clusterHelper)
 
     val clusterSupervisorActor = system.actorOf(ClusterMonitorSupervisor.props(monitorConfig, dataprocConfig, clusterBucketConfig, gdDAO,
-      computeDAO, storageDAO, FakeGoogleStorageService, DbSingleton.ref, authProvider, autoFreezeConfig, jupyterProxyDAO, MockRStudioDAO, MockWelderDAO, leoService, clusterHelper))
+      computeDAO, storageDAO, FakeGoogleStorageService, DbSingleton.ref, authProvider, autoFreezeConfig, jupyterProxyDAO, MockRStudioDAO, MockWelderDAO, clusterHelper))
 
     eventually(timeout(Span(30, Seconds))) {
       val c1 = dbFutureValue { _.clusterQuery.getClusterById(runningCluster.id) }
@@ -178,17 +176,16 @@ class ClusterMonitorSupervisorSpec extends TestKit(ActorSystem("leonardotest"))
       new MockGoogleStorageDAO
     }
 
-    val bucketHelper = new BucketHelper(dataprocConfig, gdDAO, computeDAO, storageDAO, serviceAccountProvider)
+    val bucketHelper = new BucketHelper(dataprocConfig, gdDAO, computeDAO, storageDAO, FakeGoogleStorageService, serviceAccountProvider)
 
-    val clusterHelper = new ClusterHelper(DbSingleton.ref, dataprocConfig, gdDAO, computeDAO, iamDAO)
+    val clusterHelper = new ClusterHelper(DbSingleton.ref, dataprocConfig, proxyConfig, clusterResourcesConfig, clusterFilesConfig, bucketHelper, gdDAO, computeDAO, iamDAO, projectDAO, contentSecurityPolicy)
 
-    val leoService = new LeonardoService(dataprocConfig, MockWelderDAO, clusterFilesConfig, clusterResourcesConfig,
-      clusterDefaultsConfig, proxyConfig, swaggerConfig, autoFreezeConfig, gdDAO, computeDAO, projectDAO,
-      storageDAO, mockPetGoogleStorageDAO, DbSingleton.ref, whitelistAuthProvider, serviceAccountProvider,
-      bucketHelper, clusterHelper, contentSecurityPolicy)
+    val leoService = new LeonardoService(dataprocConfig, MockWelderDAO, clusterDefaultsConfig, proxyConfig, swaggerConfig,
+      autoFreezeConfig, mockPetGoogleStorageDAO, DbSingleton.ref, whitelistAuthProvider, serviceAccountProvider,
+      bucketHelper, clusterHelper)
 
     val clusterSupervisorActor = system.actorOf(ClusterMonitorSupervisor.props(monitorConfig, dataprocConfig, clusterBucketConfig, gdDAO,
-      computeDAO, storageDAO, FakeGoogleStorageService, DbSingleton.ref, authProvider, autoFreezeConfig, jupyterProxyDAO, MockRStudioDAO, MockWelderDAO, leoService, clusterHelper))
+      computeDAO, storageDAO, FakeGoogleStorageService, DbSingleton.ref, authProvider, autoFreezeConfig, jupyterProxyDAO, MockRStudioDAO, MockWelderDAO, clusterHelper))
 
     eventually(timeout(Span(30, Seconds))) {
       val c1 = dbFutureValue { _.clusterQuery.getClusterById(runningCluster.id) }
