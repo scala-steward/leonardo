@@ -619,7 +619,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
         // Check if welder should be deployed or updated
         updatedCluster <- welderAction match {
           case DeployWelder | UpdateWelder => updateWelder(cluster).unsafeToFuture()
-          case NoAction => Future.successful(cluster)
+          case NoAction | DisableDelocalization => Future.successful(cluster)
           case ClusterOutOfDate => Future.failed(ClusterOutOfDateException())
         }
 
