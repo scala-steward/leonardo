@@ -1125,7 +1125,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
       // Welder is not enabled; do we need to deploy it?
       val labelFound = dataprocConfig.deployWelderLabel.exists(cluster.labels.contains)
       if (labelFound) {
-        if (isClusterBeforeCutoffDate(cluster)) ClusterOutOfDate
+        if (isClusterBeforeCutoffDate(cluster)) DisableDelocalization
         else DeployWelder
       }
       else NoAction
@@ -1165,7 +1165,12 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
     val clusterInit = ClusterInitValues(cluster.googleProject, cluster.clusterName, dummyInitBucket, dummyClusterRequest,
       dataprocConfig, clusterFilesConfig, clusterResourcesConfig, proxyConfig, None, cluster.auditInfo.creator,
       contentSecurityPolicy, cluster.clusterImages, dummyStagingBucket, cluster.welderEnabled)
-    val replacements: Map[String, String] = clusterInit.toMap ++ Map("deployWelder" -> (welderAction == DeployWelder).toString, "updateWelder" -> (welderAction == UpdateWelder).toString)
+    val replacements: Map[String, String] = clusterInit.toMap ++
+      Map(
+        "deployWelder" -> (welderAction == DeployWelder).toString,
+        "updateWelder" -> (welderAction == UpdateWelder).toString,
+        "disableDelocalization" -> (welderAction == DisableDelocalization).toString
+      )
 
     val startupScriptContent = templateResource(clusterResourcesConfig.startupScript, replacements)
 
