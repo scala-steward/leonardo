@@ -586,7 +586,7 @@ object LeonardoJsonSupport extends SprayJsonSupport with DefaultJsonProtocol {
         "autopauseThreshold" -> obj.autopauseThreshold.toJson,
         "defaultClientId" -> obj.defaultClientId.toJson,
         "stopAfterCreation" -> obj.stopAfterCreation.toJson,
-        "clusterImages" -> (if (obj.clusterImages) obj.clusterImages.toJson else null),
+        "clusterImages" -> (if (obj.clusterImages.isEmpty) null else obj.clusterImages.toJson),
         "scopes" -> obj.scopes.toJson,
         "welderEnabled" -> obj.welderEnabled.toJson
       )
