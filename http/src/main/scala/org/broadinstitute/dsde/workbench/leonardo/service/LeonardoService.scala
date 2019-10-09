@@ -623,6 +623,10 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
           case ClusterOutOfDate => Future.failed(ClusterOutOfDateException())
         }
 
+        _ <- if (welderAction == DisableDelocalization)
+          dbRef.inTransaction { _.labelQuery.save(cluster.id, "welderInstallFailed", "true") }
+        else Future.unit
+
         // Add back the preemptible instances
         _ <- if (updatedCluster.machineConfig.numberOfPreemptibleWorkers.exists(_ > 0))
           gdDAO.resizeCluster(updatedCluster.googleProject, updatedCluster.clusterName, numPreemptibles = updatedCluster.machineConfig.numberOfPreemptibleWorkers)
