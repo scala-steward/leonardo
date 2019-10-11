@@ -42,7 +42,7 @@ fi
 if [ "$DISABLE_DELOCALIZATION" == "true" ] ; then
     echo "Disabling localization on cluster $GOOGLE_PROJECT / $CLUSTER_NAME..."
 
-    docker exec -i $JUPYTER_SERVER_NAME bash -c "find /home/jupyter-user -name .delocalize.json -exec rm -f {} \;"
+    docker exec -i jupyter-server bash -c "find /home/jupyter-user -name .cache -prune -or -name .delocalize.json -exec rm -f {} \;"
 fi
 
 if [ "$UPDATE_WELDER" == "true" ] ; then
