@@ -193,16 +193,21 @@ class SamAuthProvider[F[_]: Effect: Logger](samDao: SamDAO[F],
     val authHeader = Authorization(Credentials.Token(AuthScheme.Bearer, userInfo.accessToken.token))
     for {
       projectPolicies <- samDao.getResourcePolicies[SamProjectPolicy](authHeader, ResourceTypeName.BillingProject)
+      _ <- Logger[F].info(s"filterUserVisibleClusters: projectPolicies = ${projectPolicies}")
       owningProjects = projectPolicies.collect {
         case x if (x.accessPolicyName == AccessPolicyName.Owner) => x.googleProject
       }
+      _ <- Logger[F].info(s"filterUserVisibleClusters: owningProjects = ${owningProjects}")
       clusterPolicies <- samDao
         .getResourcePolicies[SamNotebookClusterPolicy](authHeader, ResourceTypeName.NotebookCluster)
+      _ <- Logger[F].info(s"filterUserVisibleClusters: clusterPolicies = ${clusterPolicies}")
       createdPolicies = clusterPolicies.filter(_.accessPolicyName == AccessPolicyName.Creator)
-    } yield clusters.filter {
-      case (project, internalId) =>
+      _ <- Logger[F].info(s"filterUserVisibleClusters: createdPolicies = ${createdPolicies}")
+      filtered = clusters.filter { case (project, internalId) =>
         owningProjects.contains(project) || createdPolicies.exists(_.internalId == internalId)
-    }
+      }
+      _ <- Logger[F].info(s"filterUserVisibleClusters: filtered = ${filtered}")
+    } yield filtered
   }
 
   //Notifications that Leo has created/destroyed clusters. Allows the auth provider to register things.
