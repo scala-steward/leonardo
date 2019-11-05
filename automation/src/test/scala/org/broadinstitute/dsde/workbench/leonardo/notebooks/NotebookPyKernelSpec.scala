@@ -39,7 +39,9 @@ class NotebookPyKernelSpec extends ClusterFixtureSpec with NotebookTestUtils {
         withWebDriver { implicit driver =>
           withNewNotebook(clusterFixture.cluster, kernel) { notebookPage =>
             // install a package that is not installed by default
-            notebookPage.executeCell("import fuzzywuzzy").getOrElse("") should include("ModuleNotFoundError")
+            notebookPage.executeCell("import fuzzywuzzy").getOrElse("") should include(
+              if (kernel == Python2) "ImportError" else "ModuleNotFoundError"
+            )
             pipInstall(notebookPage, kernel, "fuzzywuzzy")
             notebookPage.saveAndCheckpoint()
 
