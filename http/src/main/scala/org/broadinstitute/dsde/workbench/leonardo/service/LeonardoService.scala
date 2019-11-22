@@ -130,6 +130,13 @@ case class IllegalLabelKeyException(labelKey: String)
 case class InvalidDataprocMachineConfigException(errorMsg: String)
     extends LeoException(s"${errorMsg}", StatusCodes.BadRequest)
 
+case class UpdateResult(status: Boolean, shouldFollowup: Boolean, followupAction: UpdateTransition)
+
+sealed trait UpdateTransition
+case class StopStart(updateConfig: MachineConfig) extends UpdateTransition
+case class DeleteCreate(updateConfig: MachineConfig) extends UpdateTransition
+case class Noop(updateConfig: Option[MachineConfig]) extends UpdateTransition
+
 class LeonardoService(protected val dataprocConfig: DataprocConfig,
                       protected val welderDao: WelderDAO[IO],
                       protected val clusterFilesConfig: ClusterFilesConfig,
@@ -466,7 +473,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
         // Note: only resizing a cluster triggers a status transition to Updating
         (errors, shouldUpdate) = List(
           autopauseChanged.map(_ => false),
-          clusterResized,
+          clusterResized.map(result => result.status),
           masterMachineTypeChanged.map(_ => false),
           masterDiskSizeChanged.map(_ => false)
         ).separate
@@ -474,6 +481,13 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
         // Set the cluster status to Updating if the cluster was resized
         _ <- if (shouldUpdate.combineAll) {
           dbRef.inTransaction { _.clusterQuery.updateClusterStatus(existingCluster.id, ClusterStatus.Updating) }.void
+        } else Future.unit
+
+        //check update follow-up
+       shouldFollowup = masterMachineTypeChanged.map(result => result.shouldFollowup).getOrElse(false)
+        _ <- if (shouldFollowup && clusterRequest.stopAndUpdate.getOrElse(false)) {
+          val action = masterMachineTypeChanged.map(result => result.followupAction).getOrElse(Noop(None))
+          handleClusterTransition(existingCluster, action)
         } else Future.unit
 
         cluster <- errors match {
@@ -486,6 +500,21 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
     } else Future.failed(ClusterCannotBeUpdatedException(existingCluster))
   }
 
+  private def handleClusterTransition(existingCluster: Cluster, transition: UpdateTransition): Future[Int] = {
+    transition match {
+      case StopStart(machineConfig) =>
+        internalStopCluster(existingCluster)
+           dbRef.inTransaction {
+            _.clusterQuery.updateClusterForStopTransition(existingCluster.id, machineConfig)
+          }
+
+        //we need to record the desired update and set a flag on the cluster so the monitor picks it up
+        //TODO: we currently do not support this
+      case DeleteCreate(_) => Future.successful(0)
+      case Noop(_) => Future.successful(0)
+    }
+  }
+
   private def getUpdatedValueIfChanged[A](existing: Option[A], updated: Option[A]): Option[A] =
     (existing, updated) match {
       case (None, Some(0)) =>
@@ -496,7 +525,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
 
   def maybeUpdateAutopauseThreshold(existingCluster: Cluster,
                                     autopause: Option[Boolean],
-                                    autopauseThreshold: Option[Int]): Future[Boolean] = {
+                                    autopauseThreshold: Option[Int]): Future[UpdateResult] = {
     val updatedAutopauseThresholdOpt = getUpdatedValueIfChanged(
       Option(existingCluster.autopauseThreshold),
       Option(calculateAutopauseThreshold(autopause, autopauseThreshold))
@@ -509,14 +538,14 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
           .inTransaction { dataAccess =>
             dataAccess.clusterQuery.updateAutopauseThreshold(existingCluster.id, updatedAutopauseThreshold)
           }
-          .as(true)
+          .as(UpdateResult(true, false, Noop(None)))
 
-      case None => Future.successful(false)
+      case None => Future.successful(UpdateResult(false, false, Noop(None)))
     }
   }
 
   //returns true if cluster was resized, otherwise returns false
-  def maybeResizeCluster(existingCluster: Cluster, machineConfigOpt: Option[MachineConfig]): Future[Boolean] = {
+  def maybeResizeCluster(existingCluster: Cluster, machineConfigOpt: Option[MachineConfig]): Future[UpdateResult] = {
     //machineConfig.numberOfPreemtible undefined, and a 0 is passed in
     //
     val updatedNumWorkersAndPreemptiblesOpt = machineConfigOpt.flatMap { machineConfig =>
@@ -546,6 +575,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
                                    existingCluster.clusterName,
                                    updatedNumWorkersAndPreemptibles.left,
                                    updatedNumWorkersAndPreemptibles.right) recoverWith {
+            //TODO this is a re-create case
             case gjre: GoogleJsonResponseException =>
               // Typically we will revoke this role in the monitor after everything is complete, but if Google fails to
               // resize the cluster we need to revoke it manually here
@@ -575,14 +605,14 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
                   .flatMap(_ => dataAccess.clusterQuery.updateNumberOfPreemptibleWorkers(existingCluster.id, Option(b)))
             )
           }
-        } yield true
+        } yield UpdateResult(true, false, Noop(None))
 
-      case None => Future.successful(false)
+      case None => Future.successful(UpdateResult(false, false, Noop(None)))
     }
   }
 
   def maybeChangeMasterMachineType(existingCluster: Cluster,
-                                   machineConfigOpt: Option[MachineConfig]): Future[Boolean] = {
+                                   machineConfigOpt: Option[MachineConfig]): Future[UpdateResult] = {
     val updatedMasterMachineTypeOpt = machineConfigOpt.flatMap { machineConfig =>
       getUpdatedValueIfChanged(existingCluster.machineConfig.masterMachineType, machineConfig.masterMachineType)
     }
@@ -612,17 +642,20 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
               _.clusterQuery.updateMasterMachineType(existingCluster.id, MachineType(updatedMasterMachineType))
             }
           }
-          .as(true)
+          .as(UpdateResult(true, false, Noop(None)))
 
-      case Some(_) =>
-        Future.failed(ClusterMachineTypeCannotBeChangedException(existingCluster))
+      case Some(updatedMasterMachineType) =>
+//        Future.failed(ClusterMachineTypeCannotBeChangedException(existingCluster))
+        val updatedConfig = machineConfigOpt.map(config => config.copy(masterMachineType = Option(updatedMasterMachineType)))
+          Future.successful(UpdateResult(false, true, StopStart(updatedConfig)))
 
       case None =>
-        Future.successful(false)
+        //TODO, should this be true if its the case where there is no update to be done
+        Future.successful(UpdateResult(false, false, Noop(None)))
     }
   }
 
-  def maybeChangeMasterDiskSize(existingCluster: Cluster, machineConfigOpt: Option[MachineConfig]): Future[Boolean] = {
+  def maybeChangeMasterDiskSize(existingCluster: Cluster, machineConfigOpt: Option[MachineConfig]): Future[UpdateResult] = {
     val updatedMasterDiskSizeOpt = machineConfigOpt.flatMap { machineConfig =>
       getUpdatedValueIfChanged(existingCluster.machineConfig.masterDiskSize, machineConfig.masterDiskSize)
     }
@@ -651,13 +684,13 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
           .flatMap { _ =>
             dbRef.inTransaction { _.clusterQuery.updateMasterDiskSize(existingCluster.id, updatedMasterDiskSize) }
           }
-          .as(true)
+          .as(UpdateResult(true, false, Noop(None)))
 
       case Some(_) =>
         Future.failed(ClusterDiskSizeCannotBeDecreasedException(existingCluster))
 
       case None =>
-        Future.successful(false)
+        Future.successful(UpdateResult(false, false, Noop(None)))
     }
   }
 

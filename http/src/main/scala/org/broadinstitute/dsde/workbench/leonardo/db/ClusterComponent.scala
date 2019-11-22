@@ -43,6 +43,7 @@ final case class ClusterRecord(id: Long,
                                autopauseThreshold: Int,
                                defaultClientId: Option[String],
                                stopAfterCreation: Boolean,
+                               stopAndUpdate: Boolean,
                                welderEnabled: Boolean)
 
 final case class MachineConfigRecord(numberOfWorkers: Int,
@@ -109,6 +110,7 @@ trait ClusterComponent extends LeoComponent {
     def kernelFoundBusyDate = column[Option[Timestamp]]("kernelFoundBusyDate", O.SqlType("TIMESTAMP(6)"))
     def defaultClientId = column[Option[String]]("defaultClientId", O.Length(1024))
     def stopAfterCreation = column[Boolean]("stopAfterCreation")
+    def stopAndUpdate = column[Boolean]("stopAndUpdate")
     def welderEnabled = column[Boolean]("welderEnabled")
     def properties = column[Option[Json]]("properties")
 
@@ -144,6 +146,7 @@ trait ClusterComponent extends LeoComponent {
         autopauseThreshold,
         defaultClientId,
         stopAfterCreation,
+        stopAndUpdate,
         welderEnabled,
         properties
       ).shaped <> ({
@@ -165,6 +168,7 @@ trait ClusterComponent extends LeoComponent {
               autopauseThreshold,
               defaultClientId,
               stopAfterCreation,
+        stopAndUpdate,
               welderEnabled,
               properties) =>
           ClusterRecord(
@@ -194,6 +198,7 @@ trait ClusterComponent extends LeoComponent {
             autopauseThreshold,
             defaultClientId,
             stopAfterCreation,
+            stopAndUpdate,
             welderEnabled
           )
       }, { c: ClusterRecord =>
@@ -220,6 +225,7 @@ trait ClusterComponent extends LeoComponent {
             c.autopauseThreshold,
             c.defaultClientId,
             c.stopAfterCreation,
+            c.stopAndUpdate,
             c.welderEnabled,
             if (c.properties.isEmpty) None else Some(c.properties.asJson)
           )
@@ -432,6 +438,18 @@ trait ClusterComponent extends LeoComponent {
         .map(c => (c.status, c.hostIp, c.dateAccessed))
         .update((status.toString, hostIp.map(_.value), Timestamp.from(Instant.now)))
 
+    def updateClusterForStopTransition(id: Long, machineConfig: MachineConfig): DBIO[Int] = {
+      machineConfig.masterMachineType match {
+        case Some(masterMachineType) => {
+          updateMasterMachineType(id, MachineType(masterMachineType))
+          findByIdQuery(id).map(_.stopAndUpdate).update(true)
+        }
+        case _ => DBIO.successful(0)
+      }
+    }
+
+
+
     def updateClusterHostIp(id: Long, hostIp: Option[IP]): DBIO[Int] =
       clusterQuery
         .filter { _.id === id }
@@ -599,6 +617,7 @@ trait ClusterComponent extends LeoComponent {
         cluster.autopauseThreshold,
         cluster.defaultClientId,
         cluster.stopAfterCreation,
+        cluster.stopAndUpdate,
         cluster.welderEnabled
       )
 
@@ -735,6 +754,7 @@ trait ClusterComponent extends LeoComponent {
         clusterRecord.autopauseThreshold,
         clusterRecord.defaultClientId,
         clusterRecord.stopAfterCreation,
+        clusterRecord.stopAndUpdate,
         clusterImageRecords map ClusterComponent.this.clusterImageQuery.unmarshalClusterImage toSet,
         ClusterComponent.this.scopeQuery.unmarshallScopes(scopes),
         clusterRecord.welderEnabled

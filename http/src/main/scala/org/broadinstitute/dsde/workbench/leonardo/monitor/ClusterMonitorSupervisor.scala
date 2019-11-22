@@ -82,7 +82,7 @@ object ClusterMonitorSupervisor {
   // sent after a cluster is deleted by the user
   case class ClusterDeleted(cluster: Cluster, recreate: Boolean = false) extends ClusterSupervisorMessage
   // sent after a cluster is stopped by the user
-  case class ClusterStopped(cluster: Cluster) extends ClusterSupervisorMessage
+  case class ClusterStopped(cluster: Cluster, updateAfterStop: Boolean = false) extends ClusterSupervisorMessage
   // sent after a cluster is started by the user
   case class ClusterStarted(cluster: Cluster) extends ClusterSupervisorMessage
   // sent after a cluster is updated by the user
@@ -325,7 +325,7 @@ class ClusterMonitorSupervisor(
           clustersNotAlreadyBeingMonitored foreach {
             case c if c.status == ClusterStatus.Deleting => self ! ClusterDeleted(c)
 
-            case c if c.status == ClusterStatus.Stopping => self ! ClusterStopped(c)
+            case c if c.status == ClusterStatus.Stopping => self ! ClusterStopped(c, c.stopAndUpdate)
 
             case c if c.status == ClusterStatus.Starting => self ! ClusterStarted(c)
 
