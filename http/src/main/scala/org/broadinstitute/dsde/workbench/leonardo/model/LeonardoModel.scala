@@ -84,6 +84,7 @@ final case class ClusterRequest(labels: LabelMap = Map.empty,
                                 properties: Map[String, String] = Map.empty,
                                 stopAfterCreation: Option[Boolean] = None,
                                 stopAndUpdate: Option[Boolean] = None,
+                                updatedMachineConfig: Option[MachineConfig] = None,
                                 userJupyterExtensionConfig: Option[UserJupyterExtensionConfig] = None,
                                 autopause: Option[Boolean] = None,
                                 autopauseThreshold: Option[Int] = None,
@@ -152,6 +153,7 @@ final case class Cluster(id: Long = 0, // DB AutoInc
                          defaultClientId: Option[String],
                          stopAfterCreation: Boolean,
                          stopAndUpdate: Boolean,
+                         updatedMachineConfig: MachineConfig,
                          clusterImages: Set[ClusterImage],
                          scopes: Set[String],
                          welderEnabled: Boolean) {
@@ -195,6 +197,7 @@ object Cluster {
       defaultClientId = clusterRequest.defaultClientId,
       stopAfterCreation = clusterRequest.stopAfterCreation.getOrElse(false),
       stopAndUpdate = clusterRequest.stopAndUpdate.getOrElse(false),
+      updatedMachineConfig = machineConfig,
       clusterImages = clusterImages,
       scopes = clusterScopes,
       welderEnabled = clusterRequest.enableWelder.getOrElse(false)
@@ -529,6 +532,7 @@ object LeonardoJsonSupport extends SprayJsonSupport with DefaultJsonProtocol {
       properties.getOrElse(Map.empty),
       fieldsWithoutNull.get("stopAfterCreation").map(_.convertTo[Boolean]),
       fieldsWithoutNull.get("stopAndUpdate").map(_.convertTo[Boolean]),
+      fieldsWithoutNull.get("updatedMachineConfig").map(_.convertTo[MachineConfig]),
       fieldsWithoutNull.get("userJupyterExtensionConfig").map(_.convertTo[UserJupyterExtensionConfig]),
       fieldsWithoutNull.get("autopause").map(_.convertTo[Boolean]),
       fieldsWithoutNull.get("autopauseThreshold").map(_.convertTo[Int]),
@@ -596,6 +600,7 @@ object LeonardoJsonSupport extends SprayJsonSupport with DefaultJsonProtocol {
             fields.getOrElse("defaultClientId", JsNull).convertTo[Option[String]],
             fields.getOrElse("stopAfterCreation", JsNull).convertTo[Boolean],
             fields.getOrElse("stopAndUpdate", JsNull).convertTo[Boolean],
+            fields.getOrElse("updatedMachineConfig", JsNull).convertTo[MachineConfig],
             fields.getOrElse("clusterImages", JsNull).convertTo[Set[ClusterImage]],
             fields.getOrElse("scopes", JsNull).convertTo[Set[String]],
             fields.getOrElse("welderEnabled", JsNull).convertTo[Boolean]
@@ -632,6 +637,7 @@ object LeonardoJsonSupport extends SprayJsonSupport with DefaultJsonProtocol {
         "defaultClientId" -> obj.defaultClientId.toJson,
         "stopAfterCreation" -> obj.stopAfterCreation.toJson,
         "stopAndUpdate" -> obj.stopAndUpdate.toJson,
+        "updatedMachineConfig" -> obj.updatedMachineConfig.toJson,
         "clusterImages" -> obj.clusterImages.toJson,
         "scopes" -> obj.scopes.toJson,
         "welderEnabled" -> obj.welderEnabled.toJson

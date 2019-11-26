@@ -46,6 +46,8 @@ class LeoRoutesSpec extends FlatSpec with ScalatestRouteTest with CommonTestData
                                     None,
                                     Map.empty,
                                     None,
+                                    None,
+                                    None,
                                     Some(UserJupyterExtensionConfig(Map("abc" -> "def"))))
 
     forallClusterCreationVersions(clusterName) { (version, clstrName, statusCode) =>

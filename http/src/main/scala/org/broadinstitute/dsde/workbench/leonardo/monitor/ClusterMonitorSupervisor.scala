@@ -10,26 +10,16 @@ import cats.effect.IO
 import cats.implicits._
 import com.typesafe.scalalogging.LazyLogging
 import cats.mtl.ApplicativeAsk
+import org.broadinstitute.dsde.workbench.leonardo.model.google._
 import org.broadinstitute.dsde.workbench.google.GoogleStorageDAO
 import org.broadinstitute.dsde.workbench.google2.GoogleStorageService
-import org.broadinstitute.dsde.workbench.leonardo.config.{
-  AutoFreezeConfig,
-  ClusterBucketConfig,
-  DataprocConfig,
-  MonitorConfig
-}
+import org.broadinstitute.dsde.workbench.leonardo.config.{AutoFreezeConfig, ClusterBucketConfig, DataprocConfig, MonitorConfig}
 import org.broadinstitute.dsde.workbench.leonardo.dao.google.{GoogleComputeDAO, GoogleDataprocDAO}
 import org.broadinstitute.dsde.workbench.leonardo.dao.{JupyterDAO, RStudioDAO, ToolDAO, WelderDAO}
 import org.broadinstitute.dsde.workbench.leonardo.db.DbReference
 import org.broadinstitute.dsde.workbench.leonardo.model.ClusterTool.Jupyter
 import org.broadinstitute.dsde.workbench.leonardo.model.google.ClusterStatus
-import org.broadinstitute.dsde.workbench.leonardo.model.{
-  Cluster,
-  ClusterRequest,
-  ClusterTool,
-  ContainerImage,
-  LeoAuthProvider
-}
+import org.broadinstitute.dsde.workbench.leonardo.model.{Cluster, ClusterRequest, ClusterTool, ContainerImage, LeoAuthProvider}
 import org.broadinstitute.dsde.workbench.leonardo.monitor.ClusterMonitorSupervisor.{ClusterSupervisorMessage, _}
 import org.broadinstitute.dsde.workbench.leonardo.service.LeonardoService
 import org.broadinstitute.dsde.workbench.leonardo.util.ClusterHelper
@@ -91,6 +81,8 @@ object ClusterMonitorSupervisor {
   case class RecreateCluster(cluster: Cluster) extends ClusterSupervisorMessage
   // sent after cluster creation succeeds, and the cluster should be stopped
   case class StopClusterAfterCreation(cluster: Cluster) extends ClusterSupervisorMessage
+  // sent after cluster stop succeeds, and the cluster should be updated
+  case class UpdateClusterAfterStop(cluster: Cluster) extends ClusterSupervisorMessage
   //Sent when the cluster should be removed from the monitored cluster list
   case class RemoveFromList(cluster: Cluster) extends ClusterSupervisorMessage
   // Auto freeze idle clusters
@@ -170,6 +162,8 @@ class ClusterMonitorSupervisor(
                 Some(cluster.machineConfig),
                 cluster.properties,
                 None,
+                None,
+                Some(cluster.machineConfig),
                 cluster.userJupyterExtensionConfig,
                 if (cluster.autopauseThreshold == 0) Some(false) else Some(true),
                 Some(cluster.autopauseThreshold),
@@ -221,10 +215,50 @@ class ClusterMonitorSupervisor(
           logger.error(s"Error occurred stopping cluster ${cluster.projectNameString} after creation", e)
         }
 
-    case ClusterStopped(cluster) =>
-      logger.info(s"Monitoring cluster ${cluster.projectNameString} after stopping.")
+    case ClusterStopQueued(cluster, updateAfterStop) =>
+      logger.info(s"Monitoring cluster ${cluster.projectNameString} with stop queued")
       monitoredClusters += cluster
-      startClusterMonitorActor(cluster)
+
+      startClusterMonitorActor(cluster, if (updateAfterStop) Some(ClusterStopped(cluster, updateAfterStop)) else None)
+
+    case ClusterStopped(cluster, updateAfterStop) =>
+      logger.info(s"Monitoring cluster ${cluster.projectNameString} after stopping.")
+
+      monitoredClusters += cluster
+      startClusterMonitorActor(cluster, if (updateAfterStop) Some(UpdateClusterAfterStop(cluster)) else None)
+
+    case UpdateClusterAfterStop(cluster) =>
+      logger.info(s"Updating cluster ${cluster.projectNameString} after stopping...")
+
+      dbRef.inTransaction {
+        dataAccess => dataAccess.clusterQuery.getClusterById(cluster.id)
+      }.flatMap {
+        case Some(resolvedCluster) if resolvedCluster.status == ClusterStatus.Stopped && !cluster.machineConfig.masterMachineType.isEmpty => {
+          // do update
+          logger.info("In update of UpdateClusterAfterStop")
+          for {
+            // perform gddao and db updates for new resources
+            _ <- leonardoService.updateMasterMachineType(cluster, MachineType(cluster.updatedMachineConfig.masterMachineType.get))
+            // start cluster
+            _ <- leonardoService.internalStartCluster(cluster)
+            // clean up temporary state used for transition
+            _ <- dbRef.inTransaction {
+              dataAccess => dataAccess.clusterQuery.updateClusterForFinishedTransition(cluster.id)
+            }
+          } yield ()
+        }
+        case Some(resolvedCluster) => {
+          logger.warn(s"Unable to update cluster ${resolvedCluster.projectNameString} in status ${resolvedCluster.status.toString} after stopping.")
+          //if we fail, we want to unmark the cluster for update in the db
+          dbRef.inTransaction {
+            dataAccess => dataAccess.clusterQuery.updateClusterForFinishedTransition(cluster.id)
+          }.void
+        }
+        case None => Future.failed(new WorkbenchException(s"Cluster ${cluster.projectNameString} not found in the database"))
+      }.failed
+        .foreach { e =>
+          logger.error(s"Error occurred updating cluster ${cluster.projectNameString} after stopping", e)
+        }
 
     case ClusterStarted(cluster) =>
       logger.info(s"Monitoring cluster ${cluster.projectNameString} after starting.")

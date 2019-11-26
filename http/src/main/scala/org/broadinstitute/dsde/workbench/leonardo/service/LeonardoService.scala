@@ -98,7 +98,7 @@ case class ClusterCannotBeUpdatedException(cluster: Cluster)
 
 case class ClusterMachineTypeCannotBeChangedException(cluster: Cluster)
     extends LeoException(
-      s"Cluster ${cluster.projectNameString} in ${cluster.status} status must be stopped in order to change machine type",
+      s"Cluster ${cluster.projectNameString} in ${cluster.status} status must be stopped in order to change machine type. Either call the stop endpoint before updates to the master machine type, or pass the updateAndStop flag with the request.",
       StatusCodes.Conflict
     )
 
@@ -466,7 +466,7 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
 
         clusterResized <- maybeResizeCluster(existingCluster, clusterRequest.machineConfig).attempt
 
-        masterMachineTypeChanged <- maybeChangeMasterMachineType(existingCluster, clusterRequest.machineConfig).attempt
+        masterMachineTypeChanged <- maybeChangeMasterMachineType(existingCluster, clusterRequest).attempt
 
         masterDiskSizeChanged <- maybeChangeMasterDiskSize(existingCluster, clusterRequest.machineConfig).attempt
 
@@ -484,8 +484,9 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
         } else Future.unit
 
         //check update follow-up
+        //maybeMasterMachineTypeChanged will throw an error if the appropriate flag hasn't been set to allow special update transitions
        shouldFollowup = masterMachineTypeChanged.map(result => result.shouldFollowup).getOrElse(false)
-        _ <- if (shouldFollowup && clusterRequest.stopAndUpdate.getOrElse(false)) {
+        _ <- if (shouldFollowup) {
           val action = masterMachineTypeChanged.map(result => result.followupAction).getOrElse(Noop(None))
           handleClusterTransition(existingCluster, action)
         } else Future.unit
@@ -503,7 +504,6 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
   private def handleClusterTransition(existingCluster: Cluster, transition: UpdateTransition): Future[Int] = {
     transition match {
       case StopStart(machineConfig) =>
-        internalStopCluster(existingCluster)
            dbRef.inTransaction {
             _.clusterQuery.updateClusterForStopTransition(existingCluster.id, machineConfig)
           }
@@ -612,47 +612,79 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
   }
 
   def maybeChangeMasterMachineType(existingCluster: Cluster,
-                                   machineConfigOpt: Option[MachineConfig]): Future[UpdateResult] = {
+                                   clusterRequest: ClusterRequest): Future[UpdateResult] = {
+    val machineConfigOpt: Option[MachineConfig] = clusterRequest.machineConfig
+    val stopAndUpdate: Boolean = clusterRequest.stopAndUpdate.getOrElse(false)
+
     val updatedMasterMachineTypeOpt = machineConfigOpt.flatMap { machineConfig =>
       getUpdatedValueIfChanged(existingCluster.machineConfig.masterMachineType, machineConfig.masterMachineType)
     }
 
+    logger.info("start of maybeChangeMasterMachineType")
+
     updatedMasterMachineTypeOpt match {
       // Note: instance must be stopped in order to change machine type
-      // TODO future enchancement: add capability to Leo to manage stop/update/restart transitions itself.
       case Some(updatedMasterMachineType) if existingCluster.status == Stopped =>
         logger.info(
           s"New machine config present. Changing machine type to ${updatedMasterMachineType} for cluster ${existingCluster.projectNameString}..."
         )
 
-        Future
-          .traverse(existingCluster.instances) { instance =>
-            instance.dataprocRole match {
-              case Some(Master) =>
-                googleComputeDAO.setMachineType(instance.key, MachineType(updatedMasterMachineType))
-              case _ =>
-                // Note: we don't support changing the machine type for worker instances. While this is possible
-                // in GCP, Spark settings are auto-tuned to machine size. Dataproc recommends adding or removing nodes,
-                // and rebuilding the cluster if new worker machine/disk sizes are needed.
-                Future.unit
-            }
-          }
-          .flatMap { _ =>
-            dbRef.inTransaction {
-              _.clusterQuery.updateMasterMachineType(existingCluster.id, MachineType(updatedMasterMachineType))
-            }
-          }
+        updateMasterMachineType(existingCluster, MachineType(updatedMasterMachineType))
           .as(UpdateResult(true, false, Noop(None)))
 
       case Some(updatedMasterMachineType) =>
+        logger.info("in stop and update case of maybeChangeMasterMachineType")
 //        Future.failed(ClusterMachineTypeCannotBeChangedException(existingCluster))
         val updatedConfig = machineConfigOpt.map(config => config.copy(masterMachineType = Option(updatedMasterMachineType)))
-          Future.successful(UpdateResult(false, true, StopStart(updatedConfig)))
+        if (stopAndUpdate) {
+          logger.info("detected stop and update transition specified in request of maybeChangeMasterMachineType")
+          val transition = if (updatedConfig.isEmpty) Noop(None) else StopStart(updatedConfig.get)
+          logger.info(s"transition in maybeChangeMasterMachineType ${transition}")
+          Future.successful(UpdateResult(false, true, transition))
+        } else {
+          Future.failed(ClusterMachineTypeCannotBeChangedException(existingCluster))
+        }
 
       case None =>
         //TODO, should this be true if its the case where there is no update to be done
+        logger.info("detected no cluster in maybeChangeMasterMachineType")
         Future.successful(UpdateResult(false, false, Noop(None)))
     }
+  }
+
+  def updateMasterMachineType(existingCluster: Cluster, machineType: MachineType): Future[Unit] = {
+    for {
+      _ <- Future
+        .traverse(existingCluster.instances) { instance =>
+          instance.dataprocRole match {
+            case Some(Master) =>
+              googleComputeDAO.setMachineType(instance.key, machineType)
+            case _ =>
+              // Note: we don't support changing the machine type for worker instances. While this is possible
+              // in GCP, Spark settings are auto-tuned to machine size. Dataproc recommends adding or removing nodes,
+              // and rebuilding the cluster if new worker machine/disk sizes are needed.
+              Future.unit
+          }
+        }
+      _ <- dbRef.inTransaction {
+        _.clusterQuery.updateMasterMachineType(existingCluster.id, machineType)
+      }
+    } yield ()
+  }
+
+  def updateGDAOMachineType(existingCluster: Cluster, machineType: MachineType): Future[Unit] = {
+    Future
+      .traverse(existingCluster.instances) { instance =>
+        instance.dataprocRole match {
+          case Some(Master) =>
+            googleComputeDAO.setMachineType(instance.key, machineType)
+          case _ =>
+            // Note: we don't support changing the machine type for worker instances. While this is possible
+            // in GCP, Spark settings are auto-tuned to machine size. Dataproc recommends adding or removing nodes,
+            // and rebuilding the cluster if new worker machine/disk sizes are needed.
+            Future.unit
+        }
+      }.map(_ => ())
   }
 
   def maybeChangeMasterDiskSize(existingCluster: Cluster, machineConfigOpt: Option[MachineConfig]): Future[UpdateResult] = {
@@ -789,10 +821,10 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
       //if you've got to here you at least have GetClusterDetails permissions so a 401 is appropriate if you can't actually stop it
       _ <- checkClusterPermission(userInfo, StopStartCluster, cluster, throw403 = true).unsafeToFuture()
 
-      _ <- internalStartCluster(userInfo.userEmail, cluster)
+      _ <- internalStartCluster(cluster)
     } yield ()
 
-  def internalStartCluster(userEmail: WorkbenchEmail, cluster: Cluster): Future[Unit] =
+  def internalStartCluster(cluster: Cluster): Future[Unit] =
     if (cluster.status.isStartable) {
       val welderAction = getWelderAction(cluster)
       for {

@@ -44,6 +44,7 @@ final case class ClusterRecord(id: Long,
                                defaultClientId: Option[String],
                                stopAfterCreation: Boolean,
                                stopAndUpdate: Boolean,
+                               updatedMachineConfig: MachineConfigRecord,
                                welderEnabled: Boolean)
 
 final case class MachineConfigRecord(numberOfWorkers: Int,
@@ -111,6 +112,13 @@ trait ClusterComponent extends LeoComponent {
     def defaultClientId = column[Option[String]]("defaultClientId", O.Length(1024))
     def stopAfterCreation = column[Boolean]("stopAfterCreation")
     def stopAndUpdate = column[Boolean]("stopAndUpdate")
+    def updatedNumberOfWorkers = column[Int]("updatedNumberOfWorkers")
+    def updatedMasterMachineType = column[String]("updatedMasterMachineType", O.Length(254))
+    def updatedMasterDiskSize = column[Int]("updatedMasterDiskSize")
+    def updatedWorkerMachineType = column[Option[String]]("updatedWorkerMachineType", O.Length(254))
+    def updatedWorkerDiskSize = column[Option[Int]]("updatedWorkerDiskSize")
+    def updatedNumberOfWorkerLocalSSDs = column[Option[Int]]("updatedNumberOfWorkerLocalSSDs")
+    def updatedNumberOfPreemptibleWorkers = column[Option[Int]]("updatedNumberOfPreemptibleWorkers")
     def welderEnabled = column[Boolean]("welderEnabled")
     def properties = column[Option[Json]]("properties")
 
@@ -147,6 +155,13 @@ trait ClusterComponent extends LeoComponent {
         defaultClientId,
         stopAfterCreation,
         stopAndUpdate,
+        (updatedNumberOfWorkers,
+          updatedMasterMachineType,
+          updatedMasterDiskSize,
+          updatedWorkerMachineType,
+          updatedWorkerDiskSize,
+          updatedNumberOfWorkerLocalSSDs,
+          updatedNumberOfPreemptibleWorkers),
         welderEnabled,
         properties
       ).shaped <> ({
@@ -168,7 +183,8 @@ trait ClusterComponent extends LeoComponent {
               autopauseThreshold,
               defaultClientId,
               stopAfterCreation,
-        stopAndUpdate,
+              stopAndUpdate,
+              updatedMachineConfig,
               welderEnabled,
               properties) =>
           ClusterRecord(
@@ -199,6 +215,7 @@ trait ClusterComponent extends LeoComponent {
             defaultClientId,
             stopAfterCreation,
             stopAndUpdate,
+            MachineConfigRecord.tupled.apply(updatedMachineConfig),
             welderEnabled
           )
       }, { c: ClusterRecord =>
@@ -226,6 +243,7 @@ trait ClusterComponent extends LeoComponent {
             c.defaultClientId,
             c.stopAfterCreation,
             c.stopAndUpdate,
+            mc(c.updatedMachineConfig),
             c.welderEnabled,
             if (c.properties.isEmpty) None else Some(c.properties.asJson)
           )
@@ -441,13 +459,18 @@ trait ClusterComponent extends LeoComponent {
     def updateClusterForStopTransition(id: Long, machineConfig: MachineConfig): DBIO[Int] = {
       machineConfig.masterMachineType match {
         case Some(masterMachineType) => {
-          updateMasterMachineType(id, MachineType(masterMachineType))
+          findByIdQuery(id).map(_.updatedMasterMachineType).update(masterMachineType.value)
           findByIdQuery(id).map(_.stopAndUpdate).update(true)
         }
         case _ => DBIO.successful(0)
       }
     }
 
+    def updateClusterForFinishedTransition(id: Long): DBIO[Int]  = {
+//      findByIdQuery(id).map(_.updatedMasterMachineType).update(None)
+//      TODO how to aggregate
+      findByIdQuery(id).map(_.stopAndUpdate).update(false)
+    }
 
 
     def updateClusterHostIp(id: Long, hostIp: Option[IP]): DBIO[Int] =
@@ -618,6 +641,15 @@ trait ClusterComponent extends LeoComponent {
         cluster.defaultClientId,
         cluster.stopAfterCreation,
         cluster.stopAndUpdate,
+        MachineConfigRecord(
+          cluster.updatedMachineConfig.numberOfWorkers.get, //a cluster should always have numberOfWorkers defined
+          cluster.updatedMachineConfig.masterMachineType.get, //a cluster should always have masterMachineType defined
+          cluster.updatedMachineConfig.masterDiskSize.get, //a cluster should always have masterDiskSize defined
+          cluster.updatedMachineConfig.workerMachineType,
+          cluster.updatedMachineConfig.workerDiskSize,
+          cluster.updatedMachineConfig.numberOfWorkerLocalSSDs,
+          cluster.updatedMachineConfig.numberOfPreemptibleWorkers
+        ),
         cluster.welderEnabled
       )
 
@@ -717,6 +749,17 @@ trait ClusterComponent extends LeoComponent {
         clusterRecord.machineConfig.numberOfWorkerLocalSsds,
         clusterRecord.machineConfig.numberOfPreemptibleWorkers
       )
+
+      val updatedMachineConfig = MachineConfig(
+        Some(clusterRecord.updatedMachineConfig.numberOfWorkers),
+        Some(clusterRecord.updatedMachineConfig.masterMachineType),
+        Some(clusterRecord.updatedMachineConfig.masterDiskSize),
+        clusterRecord.updatedMachineConfig.workerMachineType,
+        clusterRecord.updatedMachineConfig.workerDiskSize,
+        clusterRecord.updatedMachineConfig.numberOfWorkerLocalSsds,
+        clusterRecord.updatedMachineConfig.numberOfPreemptibleWorkers
+      )
+
       val serviceAccountInfo = ServiceAccountInfo(
         clusterRecord.serviceAccountInfo.clusterServiceAccount.map(WorkbenchEmail),
         clusterRecord.serviceAccountInfo.notebookServiceAccount.map(WorkbenchEmail)
@@ -755,6 +798,7 @@ trait ClusterComponent extends LeoComponent {
         clusterRecord.defaultClientId,
         clusterRecord.stopAfterCreation,
         clusterRecord.stopAndUpdate,
+        updatedMachineConfig,
         clusterImageRecords map ClusterComponent.this.clusterImageQuery.unmarshalClusterImage toSet,
         ClusterComponent.this.scopeQuery.unmarshallScopes(scopes),
         clusterRecord.welderEnabled
