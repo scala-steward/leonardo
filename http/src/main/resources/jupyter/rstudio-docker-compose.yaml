@@ -1,4 +1,4 @@
-version: '2'
+version: '3'
 services:
   rstudio:
     container_name: "${RSTUDIO_SERVER_NAME}"
@@ -13,10 +13,7 @@ services:
       CLUSTER_NAME: "${CLUSTER_NAME}"
       OWNER_EMAIL: "${OWNER_EMAIL}"
     volumes:
-      - rstudio-working:/home/rstudio
+      # shared with welder
+      - /work:/home/rstudio
     env_file:
       - /etc/google_application_credentials.env
-
-volumes:
-  rstudio-working:
-  

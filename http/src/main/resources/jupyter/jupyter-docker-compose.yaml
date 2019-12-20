@@ -1,4 +1,4 @@
-version: '2'
+version: '3'
 services:
   jupyter:
     container_name: "${JUPYTER_SERVER_NAME}"
@@ -37,3 +37,8 @@ services:
     env_file:
       - /etc/google_application_credentials.env
       - /etc/custom_env_vars.env
+    deploy:
+      resources:
+        limits:
+          # TODO: set dynamically based on the machine type
+          memory: 256M
