@@ -1147,8 +1147,8 @@ class LeonardoServiceSpec
       proxyConfig,
       swaggerConfig,
       autoFreezeConfig,
+      welderConfig,
       mockPetGoogleDAO,
-      DbSingleton.ref,
       authProvider,
       serviceAccountProvider,
       bucketHelper,
@@ -1163,20 +1163,20 @@ class LeonardoServiceSpec
 
     // set the cluster to Running
     dbFutureValue {
-      _.clusterQuery.setToRunning(clusterCreateResponse.id, IP("1.2.3.4"), Instant.now)
+      clusterQuery.setToRunning(clusterCreateResponse.id, IP("1.2.3.4"), Instant.now)
     }
 
     val newMachineType = "n1-micro-1"
     val newConfig = defaultMachineConfig.copy(masterMachineType = Some(newMachineType))
 
     dbFutureValue {
-      _.clusterQuery.getClusterStatus(clusterCreateResponse.id)
+      clusterQuery.getClusterStatus(clusterCreateResponse.id)
     } shouldBe Some(ClusterStatus.Running)
 
     // populate some instances for the cluster
     val clusterInstances = Seq(masterInstance, workerInstance1, workerInstance2)
     dbFutureValue {
-      _.instanceQuery.saveAllForCluster(getClusterId(clusterCreateResponse), clusterInstances)
+      instanceQuery.saveAllForCluster(getClusterId(clusterCreateResponse), clusterInstances)
     }
     computeDAO.instances ++= clusterInstances.groupBy(_.key).mapValues(_.head)
     computeDAO.instanceMetadata ++= clusterInstances.groupBy(_.key).mapValues(_ => Map.empty)

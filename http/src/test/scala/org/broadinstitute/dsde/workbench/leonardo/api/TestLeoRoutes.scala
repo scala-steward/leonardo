@@ -36,8 +36,6 @@ trait TestLeoRoutes { this: ScalatestRouteTest with Matchers with ScalaFutures w
     dao
   }
 
-  implicit private val nr = FakeNewRelicMetricsInterpreter
-
   val mockGoogleIamDAO = new MockGoogleIamDAO
   val mockGoogleStorageDAO = new MockGoogleStorageDAO
   val mockGoogleProjectDAO = new MockGoogleProjectDAO

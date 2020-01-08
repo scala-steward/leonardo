@@ -6,7 +6,7 @@ import fs2.{Pipe, Stream}
 import io.circe.{Decoder, Encoder}
 import org.broadinstitute.dsde.workbench.leonardo.MachineConfig
 import org.broadinstitute.dsde.workbench.leonardo.JsonCodec._
-import org.broadinstitute.dsde.workbench.leonardo.db.DbReference
+import org.broadinstitute.dsde.workbench.leonardo.db.{DbReference, clusterQuery}
 import org.broadinstitute.dsde.workbench.leonardo.model.google.{ClusterStatus, MachineType}
 import org.broadinstitute.dsde.workbench.leonardo.util.ClusterHelper
 import _root_.io.chrisdavenport.log4cats.Logger
@@ -23,7 +23,7 @@ case class ClusterNotFoundException(clusterId: Long, override val message: Strin
 class LeoPubsubMessageSubscriber[F[_]: Async: Timer: ContextShift: Logger: Concurrent](
                                                                            subscriber: GoogleSubscriber[IO, LeoPubsubMessage],
                                                                            clusterHelper: ClusterHelper,
-                                                                           dbRef: DbReference
+                                                                           dbRef: DbReference[IO]
                                                                          )(implicit executionContext: ExecutionContext, implicit val cs: ContextShift[IO]) extends LazyLogging {
 
   //TODO: This may eventually hold things other than MachineConfigs, but for now that is out of scope
@@ -53,11 +53,9 @@ class LeoPubsubMessageSubscriber[F[_]: Async: Timer: ContextShift: Logger: Concu
   val process: Stream[IO, Unit] = (subscriber.messages through messageHandler).repeat
 
 
-  def handleStopUpdateMessage(message: StopUpdateMessage) = {
+  def handleStopUpdateMessage(message: StopUpdateMessage): IO[Unit] = {
     dbRef
-      .inTransactionIO { dataAccess =>
-        dataAccess.clusterQuery.getClusterById(message.clusterId)
-      }
+      .inTransaction { clusterQuery.getClusterById(message.clusterId) }
       .flatMap {
         case Some(resolvedCluster)
           if ClusterStatus.stoppableStatuses.contains(resolvedCluster.status) && !message.updatedMachineConfig.masterMachineType.isEmpty => {
@@ -81,14 +79,12 @@ class LeoPubsubMessageSubscriber[F[_]: Async: Timer: ContextShift: Logger: Concu
       }
   }
 
-  def handleClusterTransitionFinished(message: ClusterTransitionFinishedMessage) = {
+  def handleClusterTransitionFinished(message: ClusterTransitionFinishedMessage): IO[Unit] = {
     logger.info("in start of handleClusterTransitionFinished")
     val resolution = message.clusterFollowupDetails.clusterStatus match {
       case Stopped => {
         for {
-          clusterOpt <- dbRef.inTransactionIO {
-            _.clusterQuery.getClusterById(message.clusterFollowupDetails.clusterId)
-          }
+          clusterOpt <- dbRef.inTransaction { clusterQuery.getClusterById(message.clusterFollowupDetails.clusterId) }
           result <- clusterOpt match {
             case Some(resolvedCluster) if resolvedCluster.status != ClusterStatus.Stopped =>
               IO.raiseError(new WorkbenchException(s"Unable to process message ${message} for cluster ${resolvedCluster.projectNameString} in status ${resolvedCluster.status.toString}, when the monitor signalled it stopped as it is not stopped."))

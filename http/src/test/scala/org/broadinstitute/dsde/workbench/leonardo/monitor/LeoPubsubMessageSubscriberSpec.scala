@@ -12,7 +12,7 @@ import org.broadinstitute.dsde.workbench.google2.{Event, GoogleSubscriber}
 import org.broadinstitute.dsde.workbench.leonardo.{CommonTestData, ServiceAccountInfo}
 import org.broadinstitute.dsde.workbench.leonardo.dao.WelderDAO
 import org.broadinstitute.dsde.workbench.leonardo.dao.google.MockGoogleComputeDAO
-import org.broadinstitute.dsde.workbench.leonardo.db.{DbSingleton, TestComponent}
+import org.broadinstitute.dsde.workbench.leonardo.db.{DbSingleton, TestComponent, clusterQuery}
 import org.broadinstitute.dsde.workbench.leonardo.model.LeoAuthProvider
 import org.broadinstitute.dsde.workbench.leonardo.model.google.ClusterStatus
 import org.broadinstitute.dsde.workbench.leonardo.util.{BucketHelper, ClusterHelper, QueueFactory}
@@ -23,12 +23,12 @@ import org.broadinstitute.dsde.workbench.model.WorkbenchException
 import io.circe.parser.decode
 import io.circe.syntax._
 import org.broadinstitute.dsde.workbench.leonardo.monitor.LeoPubsubCodec._
+import CommonTestData._
 
-class LeoPubsubMessageSubscriberSpec extends TestKit(ActorSystem("leonardotest")) with TestComponent with FlatSpecLike with Matchers with CommonTestData with MockitoSugar with Eventually with LazyLogging {
-  implicit val cs = IO.contextShift(system.dispatcher)
-  implicit val timer = IO.timer(system.dispatcher)
+import scala.concurrent.ExecutionContext.Implicits.global
+
+class LeoPubsubMessageSubscriberSpec extends TestKit(ActorSystem("leonardotest")) with TestComponent with FlatSpecLike with Matchers with MockitoSugar with Eventually with LazyLogging {
   implicit def unsafeLogger = Slf4jLogger.getLogger[IO]
-  val blocker = Blocker.liftExecutionContext(system.dispatcher)
 
   val mockWelderDAO = mock[WelderDAO[IO]]
   val mockGoogleDirectoryDAO = new MockGoogleDirectoryDAO()
@@ -45,7 +45,7 @@ class LeoPubsubMessageSubscriberSpec extends TestKit(ActorSystem("leonardotest")
 
   val bucketHelper = new BucketHelper(computeDAO, storageDAO, FakeGoogleStorageService, serviceAccountProvider)
 
-  val clusterHelper = new ClusterHelper(DbSingleton.ref,
+  val clusterHelper = new ClusterHelper(DbSingleton.dbRef,
     dataprocConfig,
     imageConfig,
     googleGroupsConfig,
@@ -53,6 +53,7 @@ class LeoPubsubMessageSubscriberSpec extends TestKit(ActorSystem("leonardotest")
     clusterResourcesConfig,
     clusterFilesConfig,
     monitorConfig,
+    welderConfig,
     bucketHelper,
     gdDAO,
     computeDAO,
@@ -63,14 +64,14 @@ class LeoPubsubMessageSubscriberSpec extends TestKit(ActorSystem("leonardotest")
     blocker)
 
   val runningCluster = makeCluster(1).copy(
-    serviceAccountInfo = ServiceAccountInfo(clusterServiceAccount(project), notebookServiceAccount(project)),
+    serviceAccountInfo = ServiceAccountInfo(clusterServiceAccount, notebookServiceAccount),
     dataprocInfo = Some(makeDataprocInfo(1).copy(hostIp = None)),
     status = ClusterStatus.Running,
     instances = Set(masterInstance, workerInstance1, workerInstance2)
   )
 
   val stoppedCluster = makeCluster(2).copy(
-    serviceAccountInfo = ServiceAccountInfo(clusterServiceAccount(project), notebookServiceAccount(project)),
+    serviceAccountInfo = ServiceAccountInfo(clusterServiceAccount, notebookServiceAccount),
     dataprocInfo = Some(makeDataprocInfo(1).copy(hostIp = None)),
     status = ClusterStatus.Stopped
   )
@@ -96,7 +97,7 @@ class LeoPubsubMessageSubscriberSpec extends TestKit(ActorSystem("leonardotest")
     leoSubscriber.followupMap.get(ClusterFollowupDetails(clusterId, ClusterStatus.Stopped)) shouldBe Some(newMachineConfig)
 
     eventually {
-      dbFutureValue { _.clusterQuery.getClusterById(clusterId) }.get.status shouldBe ClusterStatus.Stopping
+      dbFutureValue { clusterQuery.getClusterById(clusterId) }.get.status shouldBe ClusterStatus.Stopping
     }
 
   }
@@ -125,7 +126,7 @@ class LeoPubsubMessageSubscriberSpec extends TestKit(ActorSystem("leonardotest")
     leoSubscriber.followupMap.get(followupKey) shouldBe Some(newMachineConfig)
     caught.getMessage should include("it is not stopped")
 
-    dbFutureValue { _.clusterQuery.getClusterById(clusterId) }.get.status shouldBe ClusterStatus.Running
+    dbFutureValue { clusterQuery.getClusterById(clusterId) }.get.status shouldBe ClusterStatus.Running
 
   }
 
@@ -150,7 +151,7 @@ class LeoPubsubMessageSubscriberSpec extends TestKit(ActorSystem("leonardotest")
 
     caught.getMessage should include("Failed to process StopUpdateMessage")
 
-    dbFutureValue { _.clusterQuery.getClusterById(clusterId) }.get.status shouldBe ClusterStatus.Stopped
+    dbFutureValue { clusterQuery.getClusterById(clusterId) }.get.status shouldBe ClusterStatus.Stopped
 
   }
 
@@ -173,7 +174,7 @@ class LeoPubsubMessageSubscriberSpec extends TestKit(ActorSystem("leonardotest")
 
     leoSubscriber.followupMap.size shouldBe 1
 
-    val cluster = dbFutureValue { _.clusterQuery.getClusterById(clusterId) }.get
+    val cluster = dbFutureValue { clusterQuery.getClusterById(clusterId) }.get
     cluster.status shouldBe ClusterStatus.Running
     cluster.machineConfig shouldBe defaultMachineConfig
   }
@@ -200,7 +201,7 @@ class LeoPubsubMessageSubscriberSpec extends TestKit(ActorSystem("leonardotest")
 
     leoSubscriber.followupMap.size shouldBe 1
 
-    val cluster = dbFutureValue { _.clusterQuery.getClusterById(fakeClusterId) }
+    val cluster = dbFutureValue { clusterQuery.getClusterById(fakeClusterId) }
     cluster shouldBe None
     caught.clusterId shouldBe fakeClusterId
   }
@@ -219,7 +220,7 @@ class LeoPubsubMessageSubscriberSpec extends TestKit(ActorSystem("leonardotest")
 
     leoSubscriber.messageResponder(transitionFinishedMessage).unsafeRunSync()
 
-    val cluster = dbFutureValue { _.clusterQuery.getClusterById(clusterId) }.get
+    val cluster = dbFutureValue { clusterQuery.getClusterById(clusterId) }.get
     cluster.status shouldBe ClusterStatus.Stopped
     cluster.machineConfig shouldBe defaultMachineConfig
   }
@@ -246,8 +247,8 @@ class LeoPubsubMessageSubscriberSpec extends TestKit(ActorSystem("leonardotest")
     leoSubscriber.followupMap.size shouldBe 0
 
     eventually {
-      dbFutureValue { _.clusterQuery.getClusterById(clusterId) }.get.status shouldBe ClusterStatus.Starting
-      dbFutureValue { _.clusterQuery.getClusterById(clusterId) }.get.machineConfig shouldBe newMachineConfig
+      dbFutureValue { clusterQuery.getClusterById(clusterId) }.get.status shouldBe ClusterStatus.Starting
+      dbFutureValue { clusterQuery.getClusterById(clusterId) }.get.machineConfig shouldBe newMachineConfig
     }
   }
 
@@ -307,7 +308,7 @@ class LeoPubsubMessageSubscriberSpec extends TestKit(ActorSystem("leonardotest")
   def makeLeoSubscriber(queue: InspectableQueue[IO, Event[LeoPubsubMessage]]) = {
     val googleSubscriber = mock[GoogleSubscriber[IO, LeoPubsubMessage]]
 
-    new LeoPubsubMessageSubscriber[IO](googleSubscriber, clusterHelper, DbSingleton.ref)
+    new LeoPubsubMessageSubscriber[IO](googleSubscriber, clusterHelper, DbSingleton.dbRef)
   }
 
 }
