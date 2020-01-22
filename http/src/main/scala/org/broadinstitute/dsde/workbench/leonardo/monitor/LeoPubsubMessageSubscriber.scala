@@ -32,13 +32,17 @@ class LeoPubsubMessageSubscriber[F[_]: Async: Timer: ContextShift: Logger: Concu
 
 
   def messageResponder(message: LeoPubsubMessage): IO[Unit] = {
-    message match {
+    val response = message match {
       case msg@StopUpdateMessage(_, _) =>
         handleStopUpdateMessage(msg)
       case msg@ClusterTransitionFinishedMessage(_) =>
         handleClusterTransitionFinished(msg)
       case _ => IO.unit
     }
+
+    response.handleErrorWith(e => IO(logger.error(s"Unable to process a message in received from pub/sub subscription in messageResponder: ${message}",e)))
+
+    response
   }
 
   def messageHandler: Pipe[IO, Event[LeoPubsubMessage], Unit] = in => {
@@ -69,11 +73,6 @@ class LeoPubsubMessageSubscriber[F[_]: Async: Timer: ContextShift: Logger: Concu
           IO.raiseError(
             new WorkbenchException( s"Failed to process StopUpdateMessage for Cluster ${resolvedCluster.projectNameString}. This is likely due to a mismatch in state between the db and the message, or an improperly formatted machineConfig in the message. Cluster details: ${resolvedCluster}")
           )
-          //TODO: remove
-          //this case occurs if leo is restarted in the middle of a transition. if this happens, we want to just flush the message from the system without any erroprs
-          //future iterations will prevent this from happening
-//        case Some(_) =>
-//          IO.unit //If we get into an undesirable state, we want to just flush the message from the system instead of crashing the server
         case None =>
           IO.raiseError(new WorkbenchException(s"Could process StopUpdateMessage for cluster with id ${message.clusterId} because it was not found in the database"))
       }

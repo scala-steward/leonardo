@@ -255,7 +255,7 @@ class ClusterMonitorSpec
   // - compute DAO returns status RUNNING
   // Post:
   // - cluster is updated in the DB with status Running and the host IP
-  // - instances are populated in the DBx
+  // - instances are populated in the DB
   // - monitor actor shuts down
   "ClusterMonitorActor" should "monitor until RUNNING state" in isolatedDbTest {
     val savedCreatingCluster = creatingCluster.save()

@@ -3,11 +3,11 @@
 
     <changeSet logicalFilePath="leonardo" author="jdcanas" id="cluster-followup-table">
         <createTable tableName="CLUSTER_FOLLOWUP">
-            <column name="id" type="BIGINT" autoIncrement="true">
-                <constraints primaryKey="true"/>
-            </column>
+<!--            <column name="id" type="BIGINT" autoIncrement="true">-->
+<!--                <constraints primaryKey="true"/>-->
+<!--            </column>-->
             <column name="clusterId" type="BIGINT">
-                <constraints nullable="false"/>
+                <constraints primaryKey="true"/>
             </column>
             <column name="status" type="VARCHAR(254)">
                 <constraints nullable="false"/>
