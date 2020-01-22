@@ -1,10 +1,10 @@
-import java.sql.Timestamp
+package org.broadinstitute.dsde.workbench.leonardo
+package db
 
-import org.broadinstitute.dsde.workbench.leonardo.db.{InstanceRecord, LeoProfile, clusterQuery}
-import LeoProfile.api._
 import org.broadinstitute.dsde.workbench.leonardo.monitor.ClusterFollowupDetails
 
 import scala.concurrent.ExecutionContext
+import LeoProfile.api._
 
 case class FollowupRecord(/*id: Long,*/
                           clusterId: Long,
@@ -26,18 +26,12 @@ class FollowupTable(tag: Tag) extends Table[FollowupRecord](tag, "CLUSTER_FOLLOW
 }
 
 object followupQuery extends TableQuery(new FollowupTable(_)) {
-  def save(followupDetails: ClusterFollowupDetails, masterMachineType: String): DBIO[Int] =
-    followupQuery += FollowupRecord(followupDetails.clusterId, followupDetails.clusterStatus.entryName, Some(masterMachineType))
+  def save(followupDetails: ClusterFollowupDetails, masterMachineType: Option[String]): DBIO[Int] =
+    followupQuery += FollowupRecord(followupDetails.clusterId, followupDetails.clusterStatus.entryName, masterMachineType)
 
   def delete(followupDetails: ClusterFollowupDetails): DBIO[Int] =
     baseFollowupQuery(followupDetails)
       .delete
-
-  def hasFollowupDetails(followupDetails: ClusterFollowupDetails): DBIO[Boolean] = {
-    baseFollowupQuery(followupDetails)
-      .exists
-      .result
-  }
 
   //TODO: should this differentiate itself between no cluster with that ID found, and no machine config found?
   //gets the masterMachineType field for a given
@@ -54,5 +48,5 @@ object followupQuery extends TableQuery(new FollowupTable(_)) {
   }
   private def baseFollowupQuery(followupDetails: ClusterFollowupDetails) =
     followupQuery
-      .filter( _.clusterId == followupDetails.clusterId)
+      .filter(_.clusterId === followupDetails.clusterId)
 }
