@@ -329,9 +329,15 @@ class LeonardoService(
         //maybeMasterMachineTypeChanged will throw an error if the appropriate flag hasn't been set to allow special update transitions
         shouldFollowup = masterMachineTypeChanged.map(result => result.shouldFollowup).getOrElse(false)
         _ <- if (shouldFollowup) {
-          val action = masterMachineTypeChanged.map(result => result.followupAction).getOrElse(Noop(None))
-          IO(logger.info(s"detected follow-up action necessary: ${action}")) >> handleClusterTransition(existingCluster,
-                                                                                                        action)
+          //we do not support follow-up transitions when the cluster is set to an updating status
+          if (!shouldUpdate.combineAll) {
+            val action = masterMachineTypeChanged.map(result => result.followupAction).getOrElse(Noop(None))
+            logger.info(s"detected follow-up action necessary: ${action}")
+            handleClusterTransition(existingCluster, action)
+          } else {
+            logger.warn("A user tried to resize the cluster and master machine type at the same time, which is not supported. Only the cluster will be resized.")
+            metrics.incrementCounter("pubsub/LeonardoService/unableToFollowupDueToResize")
+          }
         } else {
           IO(logger.info("detected no follow-up action necessary"))
         }
@@ -350,7 +356,7 @@ class LeonardoService(
     transition match {
       case StopStartTransition(machineConfig) =>
         for {
-          _ <- metrics.incrementCounter(s"queuePublish/LeonardoService/StopStartTransition ")
+          _ <- metrics.incrementCounter(s"pubsub/LeonardoService/StopStartTransition ")
           //sends a message with the config to google pub/sub queue for processing by back leo
           _ <- publisherQueue.enqueue1(StopUpdateMessage(machineConfig, existingCluster.id))
           _ <- IO(logger.info("enqueued a patch request"))
