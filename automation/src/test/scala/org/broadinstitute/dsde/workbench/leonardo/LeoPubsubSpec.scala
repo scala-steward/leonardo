@@ -63,10 +63,9 @@ class LeoPubsubSpec extends ClusterFixtureSpec with BeforeAndAfterAll with Leona
   def cleanupTopic(): IO[Unit] = {
     GoogleTopicAdmin.fromCredentialPath(LeonardoConfig.Leonardo.publisherConfig.pathToCredentialJson)
       .use { client =>
-        //TODO: uncomment once workbench libs PR is in
-//        client.delete(LeonardoConfig.Leonardo.publisherConfig.projectTopicName)
-//          .compile
-//          .drain
+        client.delete(LeonardoConfig.Leonardo.publisherConfig.projectTopicName)
+          .compile
+          .drain
         IO.unit
       }
   }

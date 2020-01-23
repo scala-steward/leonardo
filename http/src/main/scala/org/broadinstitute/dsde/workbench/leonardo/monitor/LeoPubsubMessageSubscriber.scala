@@ -3,7 +3,7 @@ package org.broadinstitute.dsde.workbench.leonardo.monitor
 import cats.effect.{Async, Concurrent, ContextShift, IO, Timer}
 import org.broadinstitute.dsde.workbench.google2.{Event, GoogleSubscriber}
 import fs2.{Pipe, Stream}
-import io.circe.{Decoder, Encoder}
+import io.circe.{Decoder, DecodingFailure, Encoder}
 import org.broadinstitute.dsde.workbench.leonardo.MachineConfig
 import org.broadinstitute.dsde.workbench.leonardo.JsonCodec._
 import org.broadinstitute.dsde.workbench.leonardo.db.{DbReference, clusterQuery, followupQuery}
@@ -23,7 +23,7 @@ class LeoPubsubMessageSubscriber[F[_]: Async: Timer: ContextShift: Logger: Concu
                                                                            subscriber: GoogleSubscriber[IO, LeoPubsubMessage],
                                                                            clusterHelper: ClusterHelper,
                                                                            dbRef: DbReference[IO]
-                                                                         )(implicit executionContext: ExecutionContext, implicit val cs: ContextShift[IO]) extends LazyLogging {
+                                                                         )(implicit executionContext: ExecutionContext) extends LazyLogging {
 
 
   def messageResponder(message: LeoPubsubMessage): IO[Unit] = {
@@ -117,18 +117,15 @@ sealed trait LeoPubsubMessage {
   def messageType: String
 }
 
-final case class ClusterFollowupDetails(clusterId: Long, clusterStatus: ClusterStatus) extends Product with Serializable
-
-abstract class ClusterTransitionRequestedMessage(updatedMachineConfig: MachineConfig, clusterId: Long)  extends LeoPubsubMessage
-
-final case class StopUpdateMessage(updatedMachineConfig: MachineConfig, clusterId: Long)
-  extends ClusterTransitionRequestedMessage(updatedMachineConfig: MachineConfig, clusterId: Long) {
+final case class StopUpdateMessage(updatedMachineConfig: MachineConfig, clusterId: Long) extends LeoPubsubMessage {
   val messageType = "stopUpdate"
 }
 
 case class ClusterTransitionFinishedMessage(clusterFollowupDetails: ClusterFollowupDetails) extends LeoPubsubMessage {
   val messageType = "transitionFinished"
 }
+
+final case class ClusterFollowupDetails(clusterId: Long, clusterStatus: ClusterStatus) extends Product with Serializable
 
 final case class PubsubException(message: String) extends Exception
 
@@ -142,15 +139,16 @@ object LeoPubsubCodec {
   implicit val clusterTransitionFinishedDecoder: Decoder[ClusterTransitionFinishedMessage] =
     Decoder.forProduct1("clusterFollowupDetails")(ClusterTransitionFinishedMessage.apply)
 
-  implicit val leoPubsubMessageDecoder: Decoder[LeoPubsubMessage] = {
-    for {
-      messageType <- Decoder[String].prepare(_.downField("messageType"))
-      value <- messageType match {
-        case "stopUpdate" => Decoder[StopUpdateMessage]
-        case "transitionFinished" => Decoder[ClusterTransitionFinishedMessage]
-        case other => throw PubsubException(s"found a message with an unknown type when decoding: ${other}")
-      }
-    } yield value
+  implicit val leoPubsubMessageDecoder: Decoder[LeoPubsubMessage] = Decoder.instance {
+    message =>
+      for {
+        messageType <- message.downField("messageType").as[String]
+        value <- messageType match {
+          case "stopUpdate" => message.as[StopUpdateMessage]
+          case "transitionFinished" => message.as[ClusterTransitionFinishedMessage]
+          case other => Left(DecodingFailure(s"found a message with an unknown type when decoding: ${other}", List.empty))
+        }
+      } yield value
   }
 
   implicit val machineConfigEncoder: Encoder[MachineConfig] =
@@ -171,11 +169,11 @@ object LeoPubsubCodec {
   implicit val clusterTransitionFinishedEncoder: Encoder[ClusterTransitionFinishedMessage] =
     Encoder.forProduct2("messageType","clusterFollowupDetails")(x => (x.messageType, x.clusterFollowupDetails))
 
-  implicit val leoPubsubMessageEncoder: Encoder[LeoPubsubMessage] = (message: LeoPubsubMessage) => {
-    message.messageType match {
-      case "stopUpdate" => stopUpdateMessageEncoder(message.asInstanceOf[StopUpdateMessage])
-      case "transitionFinished" => clusterTransitionFinishedEncoder(message.asInstanceOf[ClusterTransitionFinishedMessage])
-      case other        => throw PubsubException(s"found a message with an unknown type when encoding: ${other}")
+  implicit val leoPubsubMessageEncoder: Encoder[LeoPubsubMessage] = Encoder.instance {
+    message =>
+    message match {
+      case m: StopUpdateMessage => stopUpdateMessageEncoder(m)
+      case m: ClusterTransitionFinishedMessage => clusterTransitionFinishedEncoder(m)
     }
   }
 }
