@@ -25,10 +25,6 @@ class LeoPubsubMessageSubscriber[F[_]: Async: Timer: ContextShift: Logger: Concu
                                                                            dbRef: DbReference[IO]
                                                                          )(implicit executionContext: ExecutionContext, implicit val cs: ContextShift[IO]) extends LazyLogging {
 
-  //TODO: This may eventually hold things other than MachineConfigs, but for now that is out of scope
-  //mutable thread-safe map
-//  val followupMap: TrieMap[ClusterFollowupDetails, MachineConfig] = new TrieMap[ClusterFollowupDetails, MachineConfig]()
-
 
   def messageResponder(message: LeoPubsubMessage): IO[Unit] = {
     val response = message match {
@@ -39,6 +35,7 @@ class LeoPubsubMessageSubscriber[F[_]: Async: Timer: ContextShift: Logger: Concu
       case _ => IO.unit
     }
 
+    //ensure we don't crash if the handler throws an exception
     response.handleErrorWith(e => IO(logger.error(s"Unable to process a message in received from pub/sub subscription in messageResponder: ${message}",e)))
 
     response
@@ -54,7 +51,6 @@ class LeoPubsubMessageSubscriber[F[_]: Async: Timer: ContextShift: Logger: Concu
   }
 
   val process: Stream[IO, Unit] = (subscriber.messages through messageHandler).repeat
-
 
   def handleStopUpdateMessage(message: StopUpdateMessage): IO[Unit] = {
     dbRef
@@ -79,8 +75,7 @@ class LeoPubsubMessageSubscriber[F[_]: Async: Timer: ContextShift: Logger: Concu
   }
 
   def handleClusterTransitionFinished(message: ClusterTransitionFinishedMessage): IO[Unit] = {
-    logger.info("in start of handleClusterTransitionFinished")
-    val resolution = message.clusterFollowupDetails.clusterStatus match {
+    message.clusterFollowupDetails.clusterStatus match {
       case Stopped => {
         for {
           clusterOpt <- dbRef.inTransaction { clusterQuery.getClusterById(message.clusterFollowupDetails.clusterId) }
@@ -98,10 +93,10 @@ class LeoPubsubMessageSubscriber[F[_]: Async: Timer: ContextShift: Logger: Concu
                     _ <- clusterHelper.updateMasterMachineType(resolvedCluster, MachineType(machineType))
                     // start cluster
                     _ <- clusterHelper.internalStartCluster(resolvedCluster)
-                    //clean-up info from follow-up table
+                    // clean-up info from follow-up table
                     _ <- dbRef.inTransaction { followupQuery.delete(message.clusterFollowupDetails) }
                   } yield ()
-                case None => IO.unit//the database has no record of a follow-up being needed. This is a no-op
+                case None => IO.unit //the database has no record of a follow-up being needed. This is a no-op
               }
             }
 
@@ -110,23 +105,14 @@ class LeoPubsubMessageSubscriber[F[_]: Async: Timer: ContextShift: Logger: Concu
         } yield result
       }
 
-      //No actions for other statuses yet. There is some logic that will be needed for all other cases (i.e. the 'None' case where no cluster is found in the db and possibly the case that checks for a key in the followupMap.
+      //No actions for other statuses yet. There is some logic that will be needed for all other cases (i.e. the 'None' case where no cluster is found in the db and possibly the case that checks for the data in the DB)
       // TODO: Refactor once there is more than one case
-      case _ => {
-        logger.info(s"received a message notifying that cluster ${message.clusterFollowupDetails.clusterId} has transitioned to status ${message.clusterFollowupDetails.clusterStatus}. This is a no-op.")
-        IO.unit
-      }
+      case _ => IO.unit
     }
-
-    resolution.unsafeToFuture().failed
-      .foreach { e =>
-        logger.error(s"Error occurred updating cluster with id ${message.clusterFollowupDetails.clusterId} after stopping", e)
-      }
-
-    resolution
   }
 
 }
+
 sealed trait LeoPubsubMessage {
   def messageType: String
 }
