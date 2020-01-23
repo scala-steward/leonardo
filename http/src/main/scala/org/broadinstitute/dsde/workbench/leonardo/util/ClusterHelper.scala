@@ -22,14 +22,24 @@ import org.broadinstitute.dsde.workbench.google2.GcsBlobName
 import org.broadinstitute.dsde.workbench.leonardo.config._
 import org.broadinstitute.dsde.workbench.leonardo.dao.WelderDAO
 import org.broadinstitute.dsde.workbench.leonardo.dao.google.{GoogleComputeDAO, GoogleDataprocDAO, _}
-import org.broadinstitute.dsde.workbench.leonardo.db.{DbReference, clusterQuery, labelQuery}
+import org.broadinstitute.dsde.workbench.leonardo.db.{clusterQuery, labelQuery, DbReference}
 import org.broadinstitute.dsde.workbench.leonardo.model.ClusterImageType.Welder
-import org.broadinstitute.dsde.workbench.leonardo.model.WelderAction.{ClusterOutOfDate, DeployWelder, DisableDelocalization, NoAction, UpdateWelder}
+import org.broadinstitute.dsde.workbench.leonardo.model.WelderAction.{
+  ClusterOutOfDate,
+  DeployWelder,
+  DisableDelocalization,
+  NoAction,
+  UpdateWelder
+}
 import org.broadinstitute.dsde.workbench.leonardo.model._
 import org.broadinstitute.dsde.workbench.leonardo.model.google.DataprocRole.Master
 import org.broadinstitute.dsde.workbench.leonardo.model.google.VPCConfig._
 import org.broadinstitute.dsde.workbench.leonardo.model.google._
-import org.broadinstitute.dsde.workbench.leonardo.service.{ClusterCannotBeStartedException, ClusterCannotBeStoppedException, ClusterOutOfDateException}
+import org.broadinstitute.dsde.workbench.leonardo.service.{
+  ClusterCannotBeStartedException,
+  ClusterCannotBeStoppedException,
+  ClusterOutOfDateException
+}
 import org.broadinstitute.dsde.workbench.model.google._
 import org.broadinstitute.dsde.workbench.model.{TraceId, WorkbenchEmail}
 import org.broadinstitute.dsde.workbench.newrelic.NewRelicMetrics
@@ -289,7 +299,7 @@ class ClusterHelper(
         // Update the cluster status to Starting
         now <- IO(Instant.now)
         _ <- dbRef.inTransaction { clusterQuery.updateClusterStatus(updatedCluster.id, ClusterStatus.Starting, now) }
-        } yield ()
+      } yield ()
     } else IO.raiseError(ClusterCannotBeStartedException(cluster.googleProject, cluster.clusterName, cluster.status))
 
   private def getWelderAction(cluster: Cluster): WelderAction =
@@ -327,11 +337,12 @@ class ClusterHelper(
       now <- IO(Instant.now)
       welderImage = ClusterImage(Welder, imageConfig.welderDockerImage, now)
 
-      _ <- dbRef.inTransaction { clusterQuery.
-        updateWelder(cluster.id, ClusterImage(Welder, imageConfig.welderDockerImage, now), now) }
+      _ <- dbRef.inTransaction {
+        clusterQuery.updateWelder(cluster.id, ClusterImage(Welder, imageConfig.welderDockerImage, now), now)
+      }
 
       newCluster = cluster.copy(welderEnabled = true,
-        clusterImages = cluster.clusterImages.filterNot(_.imageType == Welder) + welderImage)
+                                clusterImages = cluster.clusterImages.filterNot(_.imageType == Welder) + welderImage)
     } yield newCluster
 
   def resizeCluster(cluster: Cluster, numWorkers: Option[Int], numPreemptibles: Option[Int]): IO[Unit] =
@@ -356,7 +367,9 @@ class ClusterHelper(
       _ <- setMasterMachineTypeInGoogle(existingCluster, MachineType(machineType.value))
       // Update the DB
       now <- IO(Instant.now)
-      _ <- dbRef.inTransaction { clusterQuery.updateMasterMachineType(existingCluster.id, MachineType(machineType.value), now) }
+      _ <- dbRef.inTransaction {
+        clusterQuery.updateMasterMachineType(existingCluster.id, MachineType(machineType.value), now)
+      }
     } yield ()
 
   //updates machine type in gdDAO

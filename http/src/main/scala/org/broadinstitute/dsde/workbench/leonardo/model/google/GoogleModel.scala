@@ -96,7 +96,8 @@ object ClusterStatus extends Enum[ClusterStatus] {
     def isUpdatable: Boolean = updatableStatuses contains status
   }
 
-  implicit val clusterStatusDecoder: Decoder[ClusterStatus] = Decoder.decodeString.emap(s => ClusterStatus.withNameOption(s).toRight(s"Invalid cluster status ${s}"))
+  implicit val clusterStatusDecoder: Decoder[ClusterStatus] =
+    Decoder.decodeString.emap(s => ClusterStatus.withNameOption(s).toRight(s"Invalid cluster status ${s}"))
   implicit val clusterStatusEncoder: Encoder[ClusterStatus] = Encoder.encodeString.contramap(s => s.entryName)
 }
 

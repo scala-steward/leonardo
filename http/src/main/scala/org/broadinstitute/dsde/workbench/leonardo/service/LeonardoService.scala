@@ -20,7 +20,7 @@ import org.broadinstitute.dsde.workbench.google.GoogleStorageDAO
 import org.broadinstitute.dsde.workbench.leonardo.config._
 import org.broadinstitute.dsde.workbench.leonardo.dao.google._
 import org.broadinstitute.dsde.workbench.leonardo.dao.{DockerDAO, WelderDAO}
-import org.broadinstitute.dsde.workbench.leonardo.db.{DbReference, clusterQuery}
+import org.broadinstitute.dsde.workbench.leonardo.db.{clusterQuery, DbReference}
 import org.broadinstitute.dsde.workbench.leonardo.model.Cluster.LabelMap
 import org.broadinstitute.dsde.workbench.leonardo.model.ClusterImageType.{Jupyter, Welder}
 import org.broadinstitute.dsde.workbench.leonardo.model.LeonardoJsonSupport._
@@ -125,27 +125,29 @@ case class StopStartTransition(updateConfig: MachineConfig) extends UpdateTransi
 case class DeleteCreateTransition(updateConfig: MachineConfig) extends UpdateTransition
 case class Noop(updateConfig: Option[MachineConfig]) extends UpdateTransition
 
-class LeonardoService(protected val dataprocConfig: DataprocConfig,
-                      protected val imageConfig: ImageConfig,
-                      protected val welderDao: WelderDAO[IO],
-                      protected val clusterDefaultsConfig: ClusterDefaultsConfig,
-                      protected val proxyConfig: ProxyConfig,
-                      protected val swaggerConfig: SwaggerConfig,
-                      protected val autoFreezeConfig: AutoFreezeConfig,
-                      protected val welderConfig: WelderConfig,
-                      protected val petGoogleStorageDAO: String => GoogleStorageDAO,
-                      protected val authProvider: LeoAuthProvider[IO],
-                      protected val serviceAccountProvider: ServiceAccountProvider[IO],
-                      protected val bucketHelper: BucketHelper,
-                      protected val clusterHelper: ClusterHelper,
-                      protected val dockerDAO: DockerDAO[IO],
-                      protected val publisherQueue: fs2.concurrent.Queue[IO, LeoPubsubMessage])(implicit val executionContext: ExecutionContext,
-                                                              implicit override val system: ActorSystem,
-                                                              log: Logger[IO],
-                                                              cs: ContextShift[IO],
-                                                              metrics: NewRelicMetrics[IO],
-                                                              dbRef: DbReference[IO],
-                                                              timer: Timer[IO])
+class LeonardoService(
+  protected val dataprocConfig: DataprocConfig,
+  protected val imageConfig: ImageConfig,
+  protected val welderDao: WelderDAO[IO],
+  protected val clusterDefaultsConfig: ClusterDefaultsConfig,
+  protected val proxyConfig: ProxyConfig,
+  protected val swaggerConfig: SwaggerConfig,
+  protected val autoFreezeConfig: AutoFreezeConfig,
+  protected val welderConfig: WelderConfig,
+  protected val petGoogleStorageDAO: String => GoogleStorageDAO,
+  protected val authProvider: LeoAuthProvider[IO],
+  protected val serviceAccountProvider: ServiceAccountProvider[IO],
+  protected val bucketHelper: BucketHelper,
+  protected val clusterHelper: ClusterHelper,
+  protected val dockerDAO: DockerDAO[IO],
+  protected val publisherQueue: fs2.concurrent.Queue[IO, LeoPubsubMessage]
+)(implicit val executionContext: ExecutionContext,
+  implicit override val system: ActorSystem,
+  log: Logger[IO],
+  cs: ContextShift[IO],
+  metrics: NewRelicMetrics[IO],
+  dbRef: DbReference[IO],
+  timer: Timer[IO])
     extends LazyLogging
     with Retry {
 
@@ -328,7 +330,8 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
         shouldFollowup = masterMachineTypeChanged.map(result => result.shouldFollowup).getOrElse(false)
         _ <- if (shouldFollowup) {
           val action = masterMachineTypeChanged.map(result => result.followupAction).getOrElse(Noop(None))
-          IO(logger.info(s"detected follow-up action necessary: ${action}")) >> handleClusterTransition(existingCluster, action)
+          IO(logger.info(s"detected follow-up action necessary: ${action}")) >> handleClusterTransition(existingCluster,
+                                                                                                        action)
         } else {
           IO(logger.info("detected no follow-up action necessary"))
         }
@@ -343,22 +346,20 @@ class LeonardoService(protected val dataprocConfig: DataprocConfig,
     } else IO.raiseError(ClusterCannotBeUpdatedException(existingCluster))
   }
 
-  private def handleClusterTransition(existingCluster: Cluster, transition: UpdateTransition): IO[Unit] = {
-
+  private def handleClusterTransition(existingCluster: Cluster, transition: UpdateTransition): IO[Unit] =
     transition match {
       case StopStartTransition(machineConfig) =>
         for {
-           _ <- metrics.incrementCounter(s"queuePublish/LeonardoService/StopStartTransition ")
-           //sends a message with the config to google pub/sub queue for processing by back leo
-           _ <- publisherQueue.enqueue1(StopUpdateMessage(machineConfig, existingCluster.id))
-         _ <- IO(logger.info("enqueued a patch request"))
+          _ <- metrics.incrementCounter(s"queuePublish/LeonardoService/StopStartTransition ")
+          //sends a message with the config to google pub/sub queue for processing by back leo
+          _ <- publisherQueue.enqueue1(StopUpdateMessage(machineConfig, existingCluster.id))
+          _ <- IO(logger.info("enqueued a patch request"))
         } yield ()
 
       //TODO: we currently do not support this
       case DeleteCreateTransition(_) => IO.unit
-      case Noop(_) => IO.unit
+      case Noop(_)                   => IO.unit
     }
-  }
 
   private def getUpdatedValueIfChanged[A](existing: Option[A], updated: Option[A]): Option[A] =
     (existing, updated) match {

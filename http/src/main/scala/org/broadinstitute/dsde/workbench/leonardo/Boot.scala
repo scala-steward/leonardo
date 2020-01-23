@@ -13,7 +13,13 @@ import com.typesafe.sslconfig.ssl.ConfigSSLContextBuilder
 import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import org.broadinstitute.dsde.workbench.google.GoogleCredentialModes.{Pem, Token}
-import org.broadinstitute.dsde.workbench.google.{GoogleStorageDAO, HttpGoogleDirectoryDAO, HttpGoogleIamDAO, HttpGoogleProjectDAO, HttpGoogleStorageDAO}
+import org.broadinstitute.dsde.workbench.google.{
+  GoogleStorageDAO,
+  HttpGoogleDirectoryDAO,
+  HttpGoogleIamDAO,
+  HttpGoogleProjectDAO,
+  HttpGoogleStorageDAO
+}
 import org.broadinstitute.dsde.workbench.google2.{Event, GooglePublisher, GoogleStorageService, GoogleSubscriber}
 import org.broadinstitute.dsde.workbench.leonardo.api.{LeoRoutes, StandardUserInfoDirectives}
 import org.broadinstitute.dsde.workbench.leonardo.auth.sam.{PetClusterServiceAccountProvider, SamAuthProvider}
@@ -24,7 +30,14 @@ import org.broadinstitute.dsde.workbench.leonardo.db.DbReference
 import org.broadinstitute.dsde.workbench.leonardo.dns.ClusterDnsCache
 import org.broadinstitute.dsde.workbench.leonardo.model.google.NetworkTag
 import org.broadinstitute.dsde.workbench.leonardo.model.{LeoAuthProvider, ServiceAccountProvider}
-import org.broadinstitute.dsde.workbench.leonardo.monitor.{ClusterDateAccessedActor, ClusterMonitorSupervisor, ClusterToolMonitor, LeoPubsubMessage, LeoPubsubMessageSubscriber, ZombieClusterMonitor}
+import org.broadinstitute.dsde.workbench.leonardo.monitor.{
+  ClusterDateAccessedActor,
+  ClusterMonitorSupervisor,
+  ClusterToolMonitor,
+  LeoPubsubMessage,
+  LeoPubsubMessageSubscriber,
+  ZombieClusterMonitor
+}
 import org.broadinstitute.dsde.workbench.leonardo.service.{LeonardoService, ProxyService, StatusService}
 import org.broadinstitute.dsde.workbench.leonardo.util.{BucketHelper, ClusterHelper}
 import org.broadinstitute.dsde.workbench.newrelic.NewRelicMetrics
@@ -158,10 +171,12 @@ object Boot extends IOApp with LazyLogging {
       val messageProcessorStream =
         if (leoExecutionModeConfig.backLeo) {
           logger.info("starting subscriber in boot")
-          val pubsubSubscriber: LeoPubsubMessageSubscriber[IO] = new LeoPubsubMessageSubscriber(appDependencies.subscriber, clusterHelper, appDependencies.dbReference)
+          val pubsubSubscriber: LeoPubsubMessageSubscriber[IO] =
+            new LeoPubsubMessageSubscriber(appDependencies.subscriber, clusterHelper, appDependencies.dbReference)
           pubsubSubscriber.process
-            .handleErrorWith(error =>
-              Stream.eval(Logger[IO].error(error)("Failed to process message in pubsubMessageSubscriber")))
+            .handleErrorWith(
+              error => Stream.eval(Logger[IO].error(error)("Failed to initialize message processor in Boot. "))
+            )
         } else Stream.eval(IO.unit)
 
       val httpServer = for {

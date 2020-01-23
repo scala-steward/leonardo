@@ -402,7 +402,9 @@ class ClusterMonitorActor(
       }
       // reset the time at which the kernel was last found to be busy
       _ <- dbRef.inTransaction { clusterQuery.clearKernelFoundBusyDate(cluster.id, now) }
-      _ <- publisherQueue.enqueue1(ClusterTransitionFinishedMessage(ClusterFollowupDetails(clusterId, ClusterStatus.Stopped)))
+      _ <- publisherQueue.enqueue1(
+        ClusterTransitionFinishedMessage(ClusterFollowupDetails(clusterId, ClusterStatus.Stopped))
+      )
       // Record metrics in NewRelic
       _ <- recordStatusTransitionMetrics(cluster.status, ClusterStatus.Stopped)
     } yield ShutdownActor(RemoveFromList(cluster))

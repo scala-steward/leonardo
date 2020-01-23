@@ -68,7 +68,7 @@ object ClusterMonitorSupervisor {
                                    rstudioProxyDAO,
                                    welderDAO,
                                    clusterHelper,
-                                     publisherQueue)
+                                   publisherQueue)
     )
 
   sealed trait ClusterSupervisorMessage
