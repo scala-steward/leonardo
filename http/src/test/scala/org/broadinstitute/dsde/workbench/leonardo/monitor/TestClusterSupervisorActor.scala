@@ -4,6 +4,7 @@ package monitor
 import akka.actor.{ActorRef, Props}
 import akka.testkit.TestKit
 import cats.effect.{ContextShift, IO}
+import fs2.concurrent.InspectableQueue
 import org.broadinstitute.dsde.workbench.google.GoogleStorageDAO
 import org.broadinstitute.dsde.workbench.google2.GoogleStorageService
 import org.broadinstitute.dsde.workbench.leonardo.config.{AutoFreezeConfig, ClusterBucketConfig, DataprocConfig, ImageConfig, MonitorConfig}
@@ -11,7 +12,7 @@ import org.broadinstitute.dsde.workbench.leonardo.dao.google.{GoogleComputeDAO, 
 import org.broadinstitute.dsde.workbench.leonardo.dao.{JupyterDAO, RStudioDAO, ToolDAO, WelderDAO}
 import org.broadinstitute.dsde.workbench.leonardo.db.DbReference
 import org.broadinstitute.dsde.workbench.leonardo.model.{Cluster, LeoAuthProvider}
-import org.broadinstitute.dsde.workbench.leonardo.util.{ClusterHelper, QueueFactory}
+import org.broadinstitute.dsde.workbench.leonardo.util.{ClusterHelper}
 import org.broadinstitute.dsde.workbench.newrelic.mock.FakeNewRelicMetricsInterpreter
 
 import scala.concurrent.ExecutionContext.global
@@ -33,7 +34,7 @@ object TestClusterSupervisorActor {
             rstudioProxyDAO: RStudioDAO[IO],
             welderDAO: WelderDAO[IO],
             clusterHelper: ClusterHelper,
-            publisherQueue: fs2.concurrent.Queue[IO, LeoPubsubMessage])(implicit cs: ContextShift[IO]): Props =
+            publisherQueue: InspectableQueue[IO, LeoPubsubMessage])(implicit cs: ContextShift[IO]): Props =
     Props(
       new TestClusterSupervisorActor(monitorConfig,
                                      dataprocConfig,
@@ -76,7 +77,7 @@ class TestClusterSupervisorActor(monitorConfig: MonitorConfig,
                                  rstudioProxyDAO: RStudioDAO[IO],
                                  welderDAO: WelderDAO[IO],
                                  clusterHelper: ClusterHelper,
-                                 publisherQueue: fs2.concurrent.Queue[IO, LeoPubsubMessage])(implicit cs: ContextShift[IO])
+                                 publisherQueue: InspectableQueue[IO, LeoPubsubMessage])(implicit cs: ContextShift[IO])
     extends ClusterMonitorSupervisor(
       monitorConfig,
       dataprocConfig,
@@ -92,7 +93,7 @@ class TestClusterSupervisorActor(monitorConfig: MonitorConfig,
       rstudioProxyDAO,
       welderDAO,
       clusterHelper,
-      QueueFactory.makePublisherQueue()
+      publisherQueue
     )(FakeNewRelicMetricsInterpreter,
       global,
       dbRef,

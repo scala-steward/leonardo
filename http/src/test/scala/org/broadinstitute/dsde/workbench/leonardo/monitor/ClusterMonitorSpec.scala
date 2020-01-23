@@ -41,6 +41,7 @@ import scala.concurrent.duration._
 import scala.util.{Random, Try}
 import scala.concurrent.ExecutionContext.Implicits.global
 import CommonTestData._
+import fs2.concurrent.InspectableQueue
 import org.broadinstitute.dsde.workbench.newrelic.mock.FakeNewRelicMetricsInterpreter
 
 /**
@@ -165,7 +166,7 @@ class ClusterMonitorSpec
                               jupyterDAO: JupyterDAO[IO],
                               rstudioDAO: RStudioDAO[IO],
                               welderDAO: WelderDAO[IO],
-                             queue: fs2.concurrent.Queue[IO, LeoPubsubMessage]): ActorRef = {
+                             queue: InspectableQueue[IO, LeoPubsubMessage]): ActorRef = {
     val bucketHelper = new BucketHelper(computeDAO, storageDAO, storage2DAO, serviceAccountProvider)
     val clusterHelper = new ClusterHelper(DbSingleton.dbRef,
                                           dataprocConfig,
@@ -221,7 +222,7 @@ class ClusterMonitorSpec
     welderDAO: WelderDAO[IO] = MockWelderDAO,
     runningChild: Boolean = true,
     directoryDAO: GoogleDirectoryDAO = new MockGoogleDirectoryDAO(),
-                              queue: fs2.concurrent.Queue[IO, LeoPubsubMessage] = QueueFactory.makePublisherQueue()
+                              queue: InspectableQueue[IO, LeoPubsubMessage] = QueueFactory.makePublisherQueue()
   )(testCode: ActorRef => T): T = {
     // Set up the mock directoryDAO to have the Google group used to grant permission to users to pull the custom dataproc image
     directoryDAO

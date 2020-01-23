@@ -63,8 +63,7 @@ class LeoPubsubMessageSubscriber[F[_]: Async: Timer: ContextShift: Logger: Concu
         case Some(resolvedCluster)
           if ClusterStatus.stoppableStatuses.contains(resolvedCluster.status) && !message.updatedMachineConfig.masterMachineType.isEmpty => {
             val followupDetails = ClusterFollowupDetails(message.clusterId, ClusterStatus.Stopped)
-            logger.info(s"stopping cluster ${resolvedCluster.projectNameString} in messageResponder")
-
+            logger.info(s"stopping cluster ${resolvedCluster.projectNameString} in messageResponder, and saving a record for ${resolvedCluster.id}")
             for {
               _ <- dbRef.inTransaction( followupQuery.save(followupDetails,  message.updatedMachineConfig.masterMachineType) )
              _ <- clusterHelper.stopCluster(resolvedCluster)
@@ -85,7 +84,7 @@ class LeoPubsubMessageSubscriber[F[_]: Async: Timer: ContextShift: Logger: Concu
       case Stopped => {
         for {
           clusterOpt <- dbRef.inTransaction { clusterQuery.getClusterById(message.clusterFollowupDetails.clusterId) }
-          savedMasterMachineType <- dbRef.inTransaction { followupQuery.getFollowupDetails(message.clusterFollowupDetails) }
+          savedMasterMachineType <- dbRef.inTransaction { followupQuery.getFollowupAction(message.clusterFollowupDetails) }
           result <- clusterOpt match {
             case Some(resolvedCluster) if resolvedCluster.status != ClusterStatus.Stopped =>
               IO.raiseError(new WorkbenchException(s"Unable to process message ${message} for cluster ${resolvedCluster.projectNameString} in status ${resolvedCluster.status.toString}, when the monitor signalled it stopped as it is not stopped."))
@@ -114,7 +113,7 @@ class LeoPubsubMessageSubscriber[F[_]: Async: Timer: ContextShift: Logger: Concu
       //No actions for other statuses yet. There is some logic that will be needed for all other cases (i.e. the 'None' case where no cluster is found in the db and possibly the case that checks for a key in the followupMap.
       // TODO: Refactor once there is more than one case
       case _ => {
-        logger.info(s"received a message notifying that cluster ${message.clusterFollowupDetails.clusterId} has transitioned to status ${message.clusterFollowupDetails.clusterStatus}. This is a Noop.")
+        logger.info(s"received a message notifying that cluster ${message.clusterFollowupDetails.clusterId} has transitioned to status ${message.clusterFollowupDetails.clusterStatus}. This is a no-op.")
         IO.unit
       }
     }
