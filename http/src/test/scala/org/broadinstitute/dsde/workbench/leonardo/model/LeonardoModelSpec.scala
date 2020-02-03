@@ -255,30 +255,7 @@ class LeonardoModelSpec extends TestComponent with FlatSpecLike with Matchers wi
     ContainerRegistry.DockerHub.regex.pattern.asPredicate().test("asd_sd_as:asdf") shouldBe (false)
     ContainerRegistry.DockerHub.regex.pattern.asPredicate().test("asd/as:asdf") shouldBe (true)
     ContainerRegistry.DockerHub.regex.pattern
-      .asPredicate()
-      .test("asd_as/as:asdf ") shouldBe (false) //trailing white space
-    ContainerRegistry.DockerHub.regex.pattern.asPredicate().test("asd_as/as: asdf") shouldBe (false) //white space
-    ContainerRegistry.DockerHub.regex.pattern
-      .asPredicate()
-      .test("myrepo/mydocker; mysql -c \"DROP ALL TABLES\"; sudo rm -rf / ") shouldBe (false)
-    ContainerRegistry.DockerHub.regex.pattern.asPredicate().test("a///////") shouldBe (false)
-  }
-
-  "ContainerImage.stringToJupyterDockerImage" should "match GCR first, and then dockerhub" in {
-    ContainerImage.stringToJupyterDockerImage("us.gcr.io/broad-dsp-gcr-public/ubuntu1804") shouldBe (Some(
-      ContainerImage.GCR("us.gcr.io/broad-dsp-gcr-public/ubuntu1804")
-    ))
-    ContainerImage.stringToJupyterDockerImage("asd/asdf") shouldBe (Some(ContainerImage.DockerHub("asd/asdf")))
-  }
-
-  "Cluster" should "generate a correct cluster URL" in {
-    val expectedBase = s"http://leonardo/proxy/$project/$name0/"
-
-    // No images or labels -> default to Jupyter
-    Cluster.getClusterUrl(project, name0, Set.empty, Map.empty).toString shouldBe expectedBase + "jupyter"
-
-    // images only
-    Cluster.getClusterUrl(project, name0, Set(jupyterImage), Map.empty).toString shouldBe expectedBase + "jupyter"
+      
     Cluster
       .getClusterUrl(project, name0, Set(welderImage, customDataprocImage, jupyterImage), Map.empty)
       .toString shouldBe expectedBase + "jupyter"
