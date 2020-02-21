@@ -11,6 +11,11 @@ set -e -x
 #    "roles/iam.serviceAccountUser",
 #    "roles/storage.objectViewer",
 
+# The version of python to install
+python_version="3.7.4"
+# The version of ansible to install
+ansible_version="2.7.0.0"
+
 #
 # Constants and Global Vars
 # the image tags are set via jenkins automation
@@ -123,6 +128,46 @@ add-apt-repository \
   "deb [arch=${os_dist_arch:?}] ${docker_apt_repo_url:?} \
   ${os_dist_code_name:?} \
   ${os_dist_release_channel:?}"
+
+# Install Python (needed to install ansible)
+python_source_archive_name="Python-${python_version:?}.tar.xz"
+python_source_archive_download_url="https://www.python.org/ftp/python/${python_version%%[a-z]*}/${python_source_archive_name:?}"
+python_target_archive_name="python.tar.xz"
+
+log "Installing Python ${python_version:?} on the dataproc VM..."
+retry 5 wget -O "${python_target_archive_name:?}" "${python_source_archive_download_url:?}"
+
+mkdir -p /usr/src/python
+tar -xJC /usr/src/python --strip-components=1 -f "${python_target_archive_name:?}"
+rm -v "${python_target_archive_name:?}"
+cd /usr/src/python
+gnuArch="$(dpkg-architecture --query DEB_BUILD_GNU_TYPE)"
+./configure \
+  --build="$gnuArch" \
+  --enable-loadable-sqlite-extensions \
+  --enable-shared \
+  --with-system-expat \
+  --with-system-ffi \
+  --without-ensurepip
+make -j "$(nproc)"
+make install
+ldconfig
+python3 --version
+log "Finished installing Python $python_version"
+
+# Installing ansible
+log "Installing Ansible ${ansible_version:?} on the dataproc VM..."
+apt-get install -y python3-pip
+pip3 install paramiko
+pip3 install "ansible==${ansible_version}"
+
+# Install ansible role via ansible galaxy
+apt-get install -y git
+ansible-galaxy install -p roles -r requirements.yml
+
+# Run CIS hardening
+log "Running Ansible CIS hardening playbook in the Dataproc VM..."
+ansible-playbook deb9-cis-playbook.yml
 
 log 'Installing Docker...'
 
