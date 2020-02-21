@@ -13,9 +13,9 @@ set -e -x
 
 # The version of python to install
 python_version="3.7.4"
-# The version of ansible to install
-ansible_version="2.7.0.0"
 
+# CIS-harden-images commit hash - specifies version of hardening playbook to use
+cis_hardening_version="100d620"
 #
 # Constants and Global Vars
 # the image tags are set via jenkins automation
@@ -155,19 +155,10 @@ ldconfig
 python3 --version
 log "Finished installing Python $python_version"
 
-# Installing ansible
-log "Installing Ansible ${ansible_version:?} on the dataproc VM..."
-apt-get install -y python3-pip
-pip3 install paramiko
-pip3 install "ansible==${ansible_version}"
-
-# Install ansible role via ansible galaxy
-apt-get install -y git
-ansible-galaxy install -p roles -r requirements.yml
-
 # Run CIS hardening
-log "Running Ansible CIS hardening playbook in the Dataproc VM..."
-ansible-playbook deb9-cis-playbook.yml
+git clone https://github.com/broadinstitute/dsp-appsec-base-image-hardening.git
+git -C dsp-appsec-base-image-hardening/ checkout "${cis_hardening_version:?}"
+dsp-appsec-base-image-hardening/debian9/harden-images.sh
 
 log 'Installing Docker...'
 
