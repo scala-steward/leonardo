@@ -27,7 +27,7 @@ import org.broadinstitute.dsde.workbench.leonardo.monitor.ClusterMonitorActor.Cl
 import org.broadinstitute.dsde.workbench.leonardo.monitor.ClusterMonitorActor._
 import org.broadinstitute.dsde.workbench.leonardo.monitor.ClusterMonitorSupervisor.{ClusterDeleted, ClusterSupervisorMessage, RemoveFromList}
 import org.broadinstitute.dsde.workbench.leonardo.monitor.LeoPubsubMessage.{ClusterFollowupDetails, ClusterTransition}
-import org.broadinstitute.dsde.workbench.leonardo.util.{ClusterAlgebra, ClusterHelper, StopRuntimeParams}
+import org.broadinstitute.dsde.workbench.leonardo.util.{DataprocAlgebra, DeleteRuntimeParams, FinalizeDeleteParams, StopRuntimeParams}
 import org.broadinstitute.dsde.workbench.model.TraceId
 import org.broadinstitute.dsde.workbench.model.google.{GcsLifecycleTypes, GoogleProject}
 import org.broadinstitute.dsde.workbench.newrelic.NewRelicMetrics
@@ -47,19 +47,19 @@ object ClusterMonitorActor {
    * Creates a Props object used for creating a {{{ClusterMonitorActor}}}.
    */
   def props(
-    clusterId: Long,
-    monitorConfig: MonitorConfig,
-    dataprocConfig: DataprocConfig,
-    imageConfig: ImageConfig,
-    clusterBucketConfig: ClusterBucketConfig,
-    gdDAO: GoogleDataprocDAO,
-    googleComputeService: GoogleComputeService[IO],
-    googleStorageDAO: GoogleStorageDAO,
-    google2StorageDAO: GoogleStorageService[IO],
-    dbRef: DbReference[IO],
-    authProvider: LeoAuthProvider[IO],
-    clusterHelper: ClusterAlgebra[IO],
-    publisherQueue: fs2.concurrent.InspectableQueue[IO, LeoPubsubMessage]
+             clusterId: Long,
+             monitorConfig: MonitorConfig,
+             dataprocConfig: DataprocConfig,
+             imageConfig: ImageConfig,
+             clusterBucketConfig: ClusterBucketConfig,
+             gdDAO: GoogleDataprocDAO,
+             googleComputeService: GoogleComputeService[IO],
+             googleStorageDAO: GoogleStorageDAO,
+             google2StorageDAO: GoogleStorageService[IO],
+             dbRef: DbReference[IO],
+             authProvider: LeoAuthProvider[IO],
+             dataprocAlg: DataprocAlgebra[IO],
+             publisherQueue: fs2.concurrent.InspectableQueue[IO, LeoPubsubMessage]
   )(implicit metrics: NewRelicMetrics[IO],
     runtimeToolToToolDao: RuntimeContainerServiceType => ToolDAO[RuntimeContainerServiceType],
     cs: ContextShift[IO]): Props =
@@ -75,7 +75,7 @@ object ClusterMonitorActor {
                               google2StorageDAO,
                               dbRef,
                               authProvider,
-                              clusterHelper,
+        dataprocAlg,
                               publisherQueue)
     )
 
@@ -119,7 +119,7 @@ class ClusterMonitorActor(
   val google2StorageDAO: GoogleStorageService[IO],
   val dbRef: DbReference[IO],
   val authProvider: LeoAuthProvider[IO],
-  val clusterHelper: ClusterAlgebra[IO],
+  val dataprocAlg: DataprocAlgebra[IO],
   val publisherQueue: fs2.concurrent.InspectableQueue[IO, LeoPubsubMessage],
   val startTime: Long = System.currentTimeMillis()
 )(implicit metrics: NewRelicMetrics[IO],
@@ -157,6 +157,7 @@ class ClusterMonitorActor(
       handleReadyCluster(cluster, ip, googleInstances).unsafeToFuture() pipeTo self
 
     case FailedCluster(cluster, errorDetails, googleInstances) =>
+      implicit val traceId = ApplicativeAsk.const[IO, TraceId](TraceId(UUID.randomUUID()))
       handleFailedCluster(cluster, errorDetails, googleInstances).unsafeToFuture() pipeTo self
 
     case DeletedCluster(cluster) =>
@@ -210,7 +211,7 @@ class ClusterMonitorActor(
             runtimeConfig <- dbRef.inTransaction(
               RuntimeConfigQueries.getRuntimeConfig(cluster.runtimeConfigId)
             )
-            _ <- clusterHelper.stopRuntime(StopRuntimeParams(cluster, runtimeConfig))
+            _ <- dataprocAlg.stopRuntime(StopRuntimeParams(cluster, runtimeConfig))
             now <- IO(Instant.now)
             _ <- dbRef.inTransaction { clusterQuery.setToStopping(cluster.id, now) }
           } yield ScheduleMonitorPass
@@ -274,14 +275,11 @@ class ClusterMonitorActor(
    */
   private def handleFailedCluster(cluster: Cluster,
                                   errorDetails: RuntimeErrorDetails,
-                                  googleInstances: Set[Instance]): IO[ClusterMonitorMessage] =
+                                  googleInstances: Set[Instance])(implicit ev: ApplicativeAsk[IO, TraceId]): IO[ClusterMonitorMessage] =
     for {
       _ <- List(
         // Delete the cluster in Google
-        IO.fromFuture(IO(gdDAO.deleteCluster(cluster.googleProject, cluster.runtimeName))),
-        // Remove the service account key in Google, if present.
-        // Only happens if the cluster was NOT created with the pet service account.
-        removeServiceAccountKey(cluster),
+        dataprocAlg.deleteRuntime(DeleteRuntimeParams(cluster)),
         // create or update instances in the DB
         persistInstances(cluster, googleInstances),
         //save cluster error in the DB
@@ -366,14 +364,7 @@ class ClusterMonitorActor(
                               cluster.googleProject,
                               cluster.runtimeName)
 
-      // Remove the Dataproc Worker IAM role for the cluster service account.
-      // Only happens if the cluster was created with a service account other
-      // than the compute engine default service account.
-      _ <- clusterHelper.removeClusterIamRoles(cluster.googleProject, cluster.serviceAccountInfo)
-
-      // Remove member from the Google Group that has the IAM role to pull the Dataproc image
-      _ <- clusterHelper
-        .updateDataprocImageGroupMembership(cluster.googleProject, createCluster = false)
+      _ <- dataprocAlg.finalizeDelete(FinalizeDeleteParams(cluster))
 
       // Record metrics in NewRelic
       _ <- recordStatusTransitionMetrics(getRuntimeUI(cluster), cluster.status, RuntimeStatus.Deleted)
@@ -594,16 +585,6 @@ class ClusterMonitorActor(
 
     transformed.value
   }
-
-  private def removeServiceAccountKey(cluster: Cluster): IO[Unit] =
-    // Delete the notebook service account key in Google, if present
-    for {
-      keyOpt <- dbRef.inTransaction {
-        clusterQuery.getServiceAccountKeyId(cluster.googleProject, cluster.runtimeName)
-      }
-      _ <- clusterHelper
-        .removeServiceAccountKey(cluster.googleProject, cluster.serviceAccountInfo.notebookServiceAccount, keyOpt)
-    } yield ()
 
   private def deleteInitBucket(cluster: Cluster): IO[Unit] =
     // Get the init bucket path for this cluster, then delete the bucket in Google.
