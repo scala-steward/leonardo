@@ -6,11 +6,11 @@ import java.time.Instant
 import java.util.UUID
 
 import akka.http.scaladsl.model.StatusCodes
-import cats.Parallel
 import cats.effect.concurrent.Semaphore
 import cats.effect.{Async, Blocker, ContextShift, Timer}
 import cats.implicits._
 import cats.mtl.ApplicativeAsk
+import cats.Parallel
 import com.google.auth.oauth2.AccessToken
 import com.google.cloud.BaseServiceException
 import io.chrisdavenport.log4cats.StructuredLogger
@@ -19,7 +19,7 @@ import org.broadinstitute.dsde.workbench.google2.{GcsBlobName, GoogleStorageServ
 import org.broadinstitute.dsde.workbench.leonardo.RuntimeImageType.{Jupyter, Proxy, Welder}
 import org.broadinstitute.dsde.workbench.leonardo.config.{AutoFreezeConfig, DataprocConfig, GceConfig, ImageConfig}
 import org.broadinstitute.dsde.workbench.leonardo.dao.DockerDAO
-import org.broadinstitute.dsde.workbench.leonardo.db.{clusterQuery, DbReference, SaveCluster}
+import org.broadinstitute.dsde.workbench.leonardo.db.{DbReference, LeonardoServiceDbQueries, SaveCluster, clusterQuery}
 import org.broadinstitute.dsde.workbench.leonardo.http.api.{CreateRuntime2Request, RuntimeServiceContext}
 import org.broadinstitute.dsde.workbench.leonardo.http.service.LeonardoService._
 import org.broadinstitute.dsde.workbench.leonardo.http.service.RuntimeServiceInterp._
@@ -27,7 +27,7 @@ import org.broadinstitute.dsde.workbench.leonardo.model._
 import org.broadinstitute.dsde.workbench.leonardo.monitor.LeoPubsubMessage
 import org.broadinstitute.dsde.workbench.leonardo.monitor.LeoPubsubMessage.CreateRuntimeMessage
 import org.broadinstitute.dsde.workbench.model.google.GoogleProject
-import org.broadinstitute.dsde.workbench.model.{google, TraceId, UserInfo, WorkbenchEmail}
+import org.broadinstitute.dsde.workbench.model.{TraceId, UserInfo, WorkbenchEmail, google}
 
 import scala.concurrent.ExecutionContext
 
@@ -47,13 +47,12 @@ class RuntimeServiceInterp[F[_]: Parallel](blocker: Blocker,
   ec: ExecutionContext
 ) extends RuntimeService[F] {
 
-  def createRuntime(userInfo: UserInfo,
+  override def createRuntime(userInfo: UserInfo,
                     googleProject: GoogleProject,
                     runtimeName: RuntimeName,
                     req: CreateRuntime2Request)(implicit as: ApplicativeAsk[F, RuntimeServiceContext]): F[Unit] =
     for {
       context <- as.ask
-      implicit0(traceId: ApplicativeAsk[F, TraceId]) <- F.pure(ApplicativeAsk.const[F, TraceId](context.traceId)) //TODO: is there a better way to do this?
       hasPermission <- authProvider.hasProjectPermission(userInfo, ProjectActions.CreateClusters, googleProject)
       _ <- if (hasPermission) F.unit else F.raiseError[Unit](AuthorizationError(Some(userInfo.userEmail)))
       // Grab the service accounts from serviceAccountProvider for use later
@@ -112,7 +111,7 @@ class RuntimeServiceInterp[F[_]: Parallel](blocker: Blocker,
               .notifyClusterCreated(internalId, userInfo.userEmail, googleProject, runtimeName)
               .handleErrorWith { t =>
                 log.error(t)(
-                  s"[$traceId] Failed to notify the AuthProvider for creation of cluster ${cluster.projectNameString}"
+                  s"[${context.traceId}] Failed to notify the AuthProvider for creation of cluster ${cluster.projectNameString}"
                 ) >> F.raiseError(t)
               }
 
@@ -137,6 +136,17 @@ class RuntimeServiceInterp[F[_]: Parallel](blocker: Blocker,
           } yield ()
       }
     } yield ()
+
+//  implicit def convert(as: ApplicativeAsk[F, RuntimeServiceContext]): ApplicativeAsk[F, TraceId] = ctxConversion(as)
+  override def getRuntime(userInfo: UserInfo,
+                          googleProject: GoogleProject,
+                          runtimeName: RuntimeName)(implicit as: ApplicativeAsk[F, RuntimeServiceContext]): F[GetRuntimeResponse] = {
+    for {
+      resp <- LeonardoServiceDbQueries.getGetClusterResponse(googleProject, runtimeName).transaction // throws 404 if not existent
+      hasPermission <- authProvider.hasNotebookClusterPermission(resp.internalId, userInfo, NotebookClusterActions.GetClusterStatus, googleProject, runtimeName)
+      _ <- if (hasPermission) F.unit else F.raiseError[Unit](RuntimeNotFoundException(googleProject, runtimeName))
+    } yield resp
+  }
 
   private[service] def getRuntimeImages(
     petToken: Option[String],
@@ -171,6 +181,8 @@ class RuntimeServiceInterp[F[_]: Parallel](blocker: Blocker,
       // Get the proxy image
       proxyImage = RuntimeImage(Proxy, config.imageConfig.proxyImage.imageUrl, now)
     } yield Set(toolImage, welderImage, proxyImage)
+
+
 
   private[service] def validateBucketObjectUri(userEmail: WorkbenchEmail,
                                                userToken: String,

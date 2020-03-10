@@ -2,10 +2,14 @@ package org.broadinstitute.dsde.workbench.leonardo
 
 import java.nio.file.Path
 
+import cats.Applicative
 import cats.effect.{Blocker, ContextShift, Sync}
+import cats.implicits._
+import cats.mtl.ApplicativeAsk
 import fs2._
 import org.broadinstitute.dsde.workbench.leonardo.db.DBIOOps
-import org.broadinstitute.dsde.workbench.model.ErrorReportSource
+import org.broadinstitute.dsde.workbench.leonardo.http.api.RuntimeServiceContext
+import org.broadinstitute.dsde.workbench.model.{ErrorReportSource, TraceId}
 import slick.dbio.DBIO
 
 package object http {
@@ -21,4 +25,12 @@ package object http {
       .map(_.reverse.mkString("\n"))
       .compile
       .lastOrError
+
+  implicit def ctxConversion[F[_]: Applicative](implicit as: ApplicativeAsk[F, RuntimeServiceContext]): ApplicativeAsk[F, TraceId] = {
+    new ApplicativeAsk[F, TraceId] {
+      override val applicative: Applicative[F] = Applicative[F]
+      override def ask: F[TraceId] = as.ask.map(_.traceId)
+      override def reader[A](f: TraceId => A): F[A] = ask.map(f)
+    }
+  }
 }
