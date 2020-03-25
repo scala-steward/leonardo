@@ -11,12 +11,12 @@ class ClusterPatchSpec extends ClusterFixtureSpec with LeonardoTestUtils {
 
   //this is an end to end test of the pub/sub infrastructure
   "Patch endpoint should perform a stop/start tranition" taggedAs Tags.SmokeTest in { clusterFixture =>
-    val newMasterMachineType = MachineTypeName("n1-standard-2")
+    val newMasterMachineType = "n1-standard-2"
     val machineConfig =
-      RuntimeConfig.DataprocConfig(
-        0,
-        masterMachineType = newMasterMachineType,
-        500,
+      RuntimeConfigRequest.DataprocConfig(
+        Some(0),
+        masterMachineType = Some(newMasterMachineType),
+        Some(500),
         workerMachineType = None,
         workerDiskSize = None,
         numberOfWorkerLocalSSDs = None,
@@ -34,7 +34,7 @@ class ClusterPatchSpec extends ClusterFixtureSpec with LeonardoTestUtils {
       clusterFixture.cluster.clusterName,
       clusterRequest = defaultClusterRequest.copy(allowStop = true,
                                                   machineConfig =
-                                                    Some(DataprocConfigCopy.fromDataprocConfig(machineConfig)))
+                                                    Some(machineConfig))
     )
 
     eventually(timeout(Span(1, Minutes)), interval(Span(10, Seconds))) {
@@ -47,7 +47,7 @@ class ClusterPatchSpec extends ClusterFixtureSpec with LeonardoTestUtils {
       val getCluster: ClusterCopy =
         Leonardo.cluster.get(clusterFixture.cluster.googleProject, clusterFixture.cluster.clusterName)
       getCluster.status shouldBe ClusterStatus.Running
-      getCluster.machineConfig shouldBe originalMachineConfig.copy(masterMachineType = newMasterMachineType)
+      getCluster.machineConfig shouldBe originalMachineConfig.asInstanceOf[RuntimeConfig.DataprocConfig].copy(masterMachineType = MachineTypeName(newMasterMachineType))
     }
   }
 

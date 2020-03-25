@@ -2,18 +2,18 @@ package org.broadinstitute.dsde.workbench.leonardo
 
 import java.time.Instant
 
+import cats.implicits._
 import org.broadinstitute.dsde.workbench.auth.AuthToken
-import org.broadinstitute.dsde.workbench.model.google.GoogleProject
+import org.broadinstitute.dsde.workbench.google2.MachineTypeName
 import org.broadinstitute.dsde.workbench.leonardo.GPAllocFixtureSpec._
 import org.broadinstitute.dsde.workbench.model.WorkbenchEmail
-import org.scalatest.{fixture, BeforeAndAfterAll, Outcome, Retries}
-import cats.implicits._
-import org.broadinstitute.dsde.workbench.google2.MachineTypeName
+import org.broadinstitute.dsde.workbench.model.google.GoogleProject
+import org.scalatest.{BeforeAndAfterAll, Outcome, Retries, fixture}
 
 /**
  * trait BeforeAndAfterAll - One cluster per Scalatest Spec.
  */
-abstract class ClusterFixtureSpec  extends fixture.FreeSpec with BeforeAndAfterAll with LeonardoTestUtils with Retries with GPAllocBeforeAndAfterAll{
+abstract class RuntimeFixtureSpec  extends fixture.FreeSpec with BeforeAndAfterAll with LeonardoTestUtils with Retries with GPAllocBeforeAndAfterAll{
 
   implicit val ronToken: AuthToken = ronAuthToken
 
@@ -69,10 +69,6 @@ abstract class ClusterFixtureSpec  extends fixture.FreeSpec with BeforeAndAfterA
   override type FixtureParam = ClusterFixture
 
   override def withFixture(test: OneArgTest): Outcome = {
-    if (debug) {
-      logger.info(s"[Debug] Using mocked cluster for cluster fixture tests")
-      ronCluster = mockedCluster
-    }
 
     if (clusterCreationFailureMsg.nonEmpty)
       throw new Exception(clusterCreationFailureMsg)
@@ -93,14 +89,14 @@ abstract class ClusterFixtureSpec  extends fixture.FreeSpec with BeforeAndAfterA
   }
 
   /**
-   * Create new cluster by Ron with all default settings
+   * Create new runtime by Ron with all default settings
    */
-  def createRonCluster(billingProject: GoogleProject): Unit = {
+  def createRonRuntime(billingProject: GoogleProject): Unit = {
     logger.info(s"Creating cluster for cluster fixture tests: ${getClass.getSimpleName}")
-    ronCluster = createNewCluster(billingProject, request = getClusterRequest())(ronAuthToken)
+    ronCluster = createNewRuntime(billingProject, request = getClusterRequest())(ronAuthToken)
   }
   //should take a parameter from cloudService to determine if it is GCE or Dataproc
-  def getClusterRequest(cloudService: CloudService = CloudService.GCE): ClusterRequest = {
+  def getClusterRequest(cloudService: CloudService = CloudService.GCE): RuntimeRequest = {
     /*val machineConfig =
       RuntimeConfig.DataprocConfig(
         numberOfWorkers = 0,
@@ -135,10 +131,10 @@ abstract class ClusterFixtureSpec  extends fixture.FreeSpec with BeforeAndAfterA
 
 
 
-    ClusterRequest(
-      machineConfig = Some(machineConfig),
-      //runtimeConfig = Some(machineConfig),
-      enableWelder = Some(enableWelder),
+    RuntimeRequest(
+      //machineConfig = Some(machineConfig),
+      runtimeConfig = Some(machineConfig),
+      //enableWelder = Some(enableWelder),
       toolDockerImage = toolDockerImage,
       autopause = Some(false)
     )
@@ -160,7 +156,7 @@ abstract class ClusterFixtureSpec  extends fixture.FreeSpec with BeforeAndAfterA
         case Some(msg) if msg.startsWith(gpallocErrorPrefix) =>
           clusterCreationFailureMsg = msg
         case Some(billingProject) =>
-          Either.catchNonFatal(createRonCluster(GoogleProject(billingProject))).handleError { e =>
+          Either.catchNonFatal(createRonRuntime(GoogleProject(billingProject))).handleError { e =>
             clusterCreationFailureMsg = e.getMessage
             ronCluster = null
           }
