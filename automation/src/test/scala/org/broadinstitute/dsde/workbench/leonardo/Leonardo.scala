@@ -88,6 +88,7 @@ object Leonardo extends RestClient with LazyLogging {
 
       val path = runtimePath(googleProject, clusterName, Some(ApiVersion.V1))
       logger.info(s"Create cluster: POST /$path")
+
       postRequest(url + path, clusterRequest)
 
     }
@@ -112,6 +113,8 @@ object Leonardo extends RestClient with LazyLogging {
         r <- json.as[GetRuntimeResponseCopy]
       } yield r
 
+      //val stringRes = res.toString
+      //logger.info(s"PRINTING OUT RES ${stringRes}")
       //res Either[Throwable,GetRunTimeResponseCopy]
       res.fold(e => throw e, resp => {
         logger.info(s"Get cluster: GET /$path. Status = ${resp.status}")
@@ -189,11 +192,11 @@ object AutomationTestJsonCodec {
     }
 
   //removed the Dataproc Instances (don't know what to have for the implicit value)
-  implicit val getRuntimeResponseCopyDecoder: Decoder[GetRuntimeResponseCopy] = Decoder.forProduct14[GetRuntimeResponseCopy,
+  implicit val getRuntimeResponseCopyDecoder: Decoder[GetRuntimeResponseCopy] = Decoder.forProduct15[GetRuntimeResponseCopy,
       RuntimeName,
       GoogleProject,
       ServiceAccountInfo,
-      //AuditInfo,
+      WorkbenchEmail,
       Option[GcsBucketName],
       RuntimeConfig,
       URL,
@@ -209,7 +212,7 @@ object AutomationTestJsonCodec {
       "clusterName",
       "googleProject",
       "serviceAccountInfo",
-      //"auditInfo",
+      "creator",
       "stagingBucket",
       "machineConfig",
       "clusterUrl",
@@ -221,10 +224,11 @@ object AutomationTestJsonCodec {
       "errors",
       "userJupyterExtensionConfig",
       "autopauseThreshold"
-    ) { (cn, gp, sa, sb, mc, cu, status, l, jeu, jusu, jsusu, e,  ujec, at) =>
+    ) { (cn, gp, sa, c, sb, mc, cu, status, l, jeu, jusu, jsusu, e,  ujec, at) =>
     //Figure this out
+      val auditInfo = AuditInfo(c, null, null, null, null);
       val asyncRuntimeFields = sb.map(bucket=> AsyncRuntimeFields(GoogleId(null), null, bucket, null))
-      GetRuntimeResponseCopy(cn, gp, sa, asyncRuntimeFields, mc, cu, status, l, jeu, jusu, jsusu, e.getOrElse(List.empty), ujec, at)
+      GetRuntimeResponseCopy(cn, gp, sa, auditInfo, asyncRuntimeFields, mc, cu, status, l, jeu, jusu, jsusu, e.getOrElse(List.empty), ujec, at)
     }
 
 }

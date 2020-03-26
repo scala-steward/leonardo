@@ -183,6 +183,9 @@ trait LeonardoTestUtils
       case Some(x) => x.nbExtensions ++ x.combinedExtensions ++ x.serverExtensions ++ x.labExtensions
       case None    => Map()
     }
+
+    logger.info(s"Creator Expected ${creator}")
+
     val expected = runtimeRequest.labels ++ DefaultLabelsCopy(
       runtimeName,
       googleProject,
@@ -195,7 +198,12 @@ trait LeonardoTestUtils
       runtimeRequest.toolDockerImage.map(getExpectedToolLabel).getOrElse("Jupyter")
     ).toMap ++ jupyterExtensions
 
+    val actualSeen = seen - "clusterServiceAccount" - "notebookServiceAccount"
+    val actualExpected = expected - "clusterServiceAccount" - "notebookServiceAccount"
+    logger.info(s"PRINTING SEEN ${actualSeen}")
+    logger.info(s"PRINTING EXPECTED ${actualExpected}")
     (seen - "clusterServiceAccount" - "notebookServiceAccount") shouldBe (expected - "clusterServiceAccount" - "notebookServiceAccount")
+    logger.info(s"AFTER LABEL CHECK SHOULDBE")
   }
 
   def verifyCluster(cluster: ClusterCopy,
@@ -237,7 +245,7 @@ trait LeonardoTestUtils
                     runtimeRequest: RuntimeRequest,
                     bucketCheck: Boolean = true): GetRuntimeResponseCopy = {
     // Always log cluster errors
-    logger.info(s"LOGGED EXPECTED STATUSES ${expectedStatuses}")
+    //logger.info(s"PRINTING CLUSTER MAP ${cluster.labels}")
     if (cluster.errors.nonEmpty) {
       logger.warn(s"ClusterCopy ${cluster.googleProject}/${cluster.runtimeName} returned the following errors: ${cluster.errors}")
     }
@@ -248,11 +256,13 @@ trait LeonardoTestUtils
     cluster.googleProject shouldBe expectedProject
     cluster.runtimeName shouldBe expectedName
 
+    val asyncRuntimeFields = cluster.asyncRuntimeFields
+    logger.info(s"STAGING BUCKET ${asyncRuntimeFields}")
     //val expectedStopAfterCreation = runtimeRequest.stopAfterCreation.getOrElse(false)
     //cluster.stopAfterCreation shouldBe expectedStopAfterCreation
 
-    gceLabelCheck(cluster.labels, expectedName, expectedProject, cluster.serviceAccountInfo.clusterServiceAccount.get, runtimeRequest)
-
+    gceLabelCheck(cluster.labels, expectedName, expectedProject, cluster.auditInfo.creator, runtimeRequest)
+    logger.info(s"AFTER LABEL CHECK")
     cluster
     //TODO Check to make sure this bucket check is still needed
     /*if (bucketCheck) {
@@ -336,6 +346,7 @@ trait LeonardoTestUtils
         runtimeRequest)
     }(getAfterCreatePatience, implicitly[Position])
     logger.info(s"WE ARE PAST THE EVENTUALLY BLOCK")
+    logger.info(s"PRINT CREATING CLUSTER ${creatingCluster}")
     if (monitor) {
       monitorCreateRuntime(googleProject, runtimeName, runtimeRequest, creatingCluster)
       creatingCluster.status
@@ -399,12 +410,16 @@ trait LeonardoTestUtils
     val runningOrErroredCluster = Try {
       eventually {
         val cluster = Leonardo.cluster.getRuntime(googleProject, clusterName)
+
         //Returns a runtime Status
         verifyRuntime(cluster, googleProject, clusterName, expectedStatuses, clusterRequest, true)
       }
     }
 
-
+    logger.info(s"WE ARE AT THE SAVEDATAPROCAREA")
+    val checkStagingBucket = creatingCluster.asyncRuntimeFields.map(_.stagingBucket)
+    logger.info(s"CHECKING ASYNC IN MONITOR ${creatingCluster.asyncRuntimeFields}")
+    logger.info(s"CHECKING THE STAGING BUCKET IN MONITOR ${checkStagingBucket}")
     //TODO Check to see if this applies for Using Runtimes
     // Save the cluster init log file whether or not the cluster created successfully
     saveDataprocLogFiles(creatingCluster.asyncRuntimeFields.map(_.stagingBucket), googleProject, clusterName).timeout(5.minutes).unsafeRunSync()

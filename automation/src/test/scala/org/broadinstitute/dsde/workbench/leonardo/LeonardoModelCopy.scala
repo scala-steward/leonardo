@@ -195,7 +195,7 @@ final case class GetRuntimeResponseCopy(
                                     runtimeName: RuntimeName,
                                     googleProject: GoogleProject,
                                     serviceAccountInfo: ServiceAccountInfo,
-                                    //auditInfo: AuditInfo,
+                                    auditInfo: AuditInfo,
                                     asyncRuntimeFields: Option[AsyncRuntimeFields],
                                     runtimeConfig: RuntimeConfig,
                                     clusterUrl: URL,
