@@ -143,9 +143,9 @@ abstract class RuntimeFixtureSpec  extends fixture.FreeSpec with BeforeAndAfterA
   /**
    * Delete cluster without monitoring that's owned by Ron
    */
-  def deleteRonCluster(billingProject: GoogleProject, monitoringDelete: Boolean = false): Unit = {
+  def deleteRonRuntime(billingProject: GoogleProject, monitoringDelete: Boolean = false): Unit = {
     logger.info(s"Deleting cluster for cluster fixture tests: ${getClass.getSimpleName}")
-    deleteCluster(billingProject, ronCluster.clusterName, monitoringDelete)(ronAuthToken)
+    deleteRuntime(billingProject, ronCluster.clusterName, monitoringDelete)(ronAuthToken)
   }
 
   override def beforeAll(): Unit = {
@@ -171,7 +171,7 @@ abstract class RuntimeFixtureSpec  extends fixture.FreeSpec with BeforeAndAfterA
     logger.info("afterAll")
     if (!debug) {
       sys.props.get(gpallocProjectKey) match {
-        case Some(billingProject) => deleteRonCluster(GoogleProject(billingProject))
+        case Some(billingProject) => deleteRonRuntime(GoogleProject(billingProject))
         case None                 => throw new RuntimeException("leonardo.billingProject system property is not set")
       }
     }

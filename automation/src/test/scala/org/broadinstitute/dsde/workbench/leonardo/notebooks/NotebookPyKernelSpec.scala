@@ -16,40 +16,40 @@ class NotebookPyKernelSpec extends RuntimeFixtureSpec with NotebookTestUtils {
 
   "NotebookPyKernelSpec" - {
 
-    "should create a notebook with a working Python 3 kernel and import installed packages" in { clusterFixture =>
-      withWebDriver { implicit driver =>
-        withNewNotebook(clusterFixture.cluster, Python3) { notebookPage =>
-          val getPythonVersion =
-            """import platform
-              |print(platform.python_version())""".stripMargin
-          val getBxPython =
-            """import bx.bitset
-              |bx.bitset.sys.copyright""".stripMargin
-          notebookPage.executeCell("1+1") shouldBe Some("2")
-          notebookPage.executeCell(getPythonVersion).get should include("3.7")
-          notebookPage.executeCell(getBxPython).get should include("Copyright (c)")
-        }
-      }
-    }
-
-    Seq(Python3).foreach { kernel =>
-      s"should be able to pip install packages using ${kernel.string}" in { clusterFixture =>
-        withWebDriver { implicit driver =>
-          withNewNotebook(clusterFixture.cluster, kernel) { notebookPage =>
-            // install a package that is not installed by default
-            notebookPage.executeCell("import fuzzywuzzy").getOrElse("") should include("ModuleNotFoundError")
-            pipInstall(notebookPage, kernel, "fuzzywuzzy")
-            notebookPage.saveAndCheckpoint()
-
-            // need to restart the kernel for the install to take effect
-            notebookPage.restartKernel()
-
-            notebookPage.executeCell("import fuzzywuzzy", cellNumberOpt = Some(1)) shouldBe None
-          }
-        }
-      }
-    }
-
+//    "should create a notebook with a working Python 3 kernel and import installed packages" in { clusterFixture =>
+//      withWebDriver { implicit driver =>
+//        withNewNotebook(clusterFixture.cluster, Python3) { notebookPage =>
+//          val getPythonVersion =
+//            """import platform
+//              |print(platform.python_version())""".stripMargin
+//          val getBxPython =
+//            """import bx.bitset
+//              |bx.bitset.sys.copyright""".stripMargin
+//          notebookPage.executeCell("1+1") shouldBe Some("2")
+//          notebookPage.executeCell(getPythonVersion).get should include("3.7")
+//          notebookPage.executeCell(getBxPython).get should include("Copyright (c)")
+//        }
+//      }
+//    }
+//
+//    Seq(Python3).foreach { kernel =>
+//      s"should be able to pip install packages using ${kernel.string}" in { clusterFixture =>
+//        withWebDriver { implicit driver =>
+//          withNewNotebook(clusterFixture.cluster, kernel) { notebookPage =>
+//            // install a package that is not installed by default
+//            notebookPage.executeCell("import fuzzywuzzy").getOrElse("") should include("ModuleNotFoundError")
+//            pipInstall(notebookPage, kernel, "fuzzywuzzy")
+//            notebookPage.saveAndCheckpoint()
+//
+//            // need to restart the kernel for the install to take effect
+//            notebookPage.restartKernel()
+//
+//            notebookPage.executeCell("import fuzzywuzzy", cellNumberOpt = Some(1)) shouldBe None
+//          }
+//        }
+//      }
+//    }
+//
 //    "should NOT be able to run Spark" in { clusterFixture =>
 //      val sparkCommandToFail =
 //        """try:
@@ -195,20 +195,23 @@ class NotebookPyKernelSpec extends RuntimeFixtureSpec with NotebookTestUtils {
 //        }
 //      }
 //    }
-//
-//    "should use pet credentials" in { clusterFixture =>
-//      val petEmail = getAndVerifyPet(clusterFixture.cluster.googleProject)
-//
-//      // cluster should have been created with the pet service account
-//      clusterFixture.cluster.serviceAccountInfo.clusterServiceAccount shouldBe Some(petEmail)
-//      clusterFixture.cluster.serviceAccountInfo.notebookServiceAccount shouldBe None
-//
-//      withWebDriver { implicit driver =>
-//        withNewNotebook(clusterFixture.cluster, Python3) { notebookPage =>
-//          // should not have notebook credentials because Leo is not configured to use a notebook service account
-//          verifyNoNotebookCredentials(notebookPage)
-//        }
-//      }
-//    }
+
+    "should use pet credentials" in { clusterFixture =>
+      val petEmail = getAndVerifyPet(clusterFixture.cluster.googleProject)
+      logger.info(s"WE ARE PAST THE GET AND VERIFY BLOCK")
+      // cluster should have been created with the pet service account
+      logger.info(s"PET EMAIL: ${petEmail}")
+      logger.info(s"Cluster Service Account ${clusterFixture.cluster}")
+      clusterFixture.cluster.serviceAccountInfo.clusterServiceAccount shouldBe Some(petEmail)
+      clusterFixture.cluster.serviceAccountInfo.notebookServiceAccount shouldBe None
+
+      logger.info(s"WE ARE PAST THE SHOULD BE CHECK")
+      withWebDriver { implicit driver =>
+        withNewNotebook(clusterFixture.cluster, Python3) { notebookPage =>
+          // should not have notebook credentials because Leo is not configured to use a notebook service account
+          verifyNoNotebookCredentials(notebookPage)
+        }
+      }
+    }
   }
 }

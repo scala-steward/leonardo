@@ -194,7 +194,7 @@ object ClusterStatus extends Enumeration {
 final case class GetRuntimeResponseCopy(
                                     runtimeName: RuntimeName,
                                     googleProject: GoogleProject,
-                                    serviceAccountInfo: ServiceAccountInfo,
+                                    serviceAccount: WorkbenchEmail,
                                     auditInfo: AuditInfo,
                                     asyncRuntimeFields: Option[AsyncRuntimeFields],
                                     runtimeConfig: RuntimeConfig,

@@ -113,8 +113,6 @@ object Leonardo extends RestClient with LazyLogging {
         r <- json.as[GetRuntimeResponseCopy]
       } yield r
 
-      //val stringRes = res.toString
-      //logger.info(s"PRINTING OUT RES ${stringRes}")
       //res Either[Throwable,GetRunTimeResponseCopy]
       res.fold(e => throw e, resp => {
         logger.info(s"Get cluster: GET /$path. Status = ${resp.status}")
@@ -131,6 +129,12 @@ object Leonardo extends RestClient with LazyLogging {
 
     def delete(googleProject: GoogleProject, clusterName: RuntimeName)(implicit token: AuthToken): String = {
       val path = clusterPath(googleProject, clusterName)
+      logger.info(s"Delete cluster: DELETE /$path")
+      deleteRequest(url + path)
+    }
+
+    def deleteRuntime(googleProject: GoogleProject, clusterName: RuntimeName)(implicit token: AuthToken): String = {
+      val path = runtimePath(googleProject, clusterName, Some(ApiVersion.V1))
       logger.info(s"Delete cluster: DELETE /$path")
       deleteRequest(url + path)
     }
@@ -195,9 +199,9 @@ object AutomationTestJsonCodec {
   implicit val getRuntimeResponseCopyDecoder: Decoder[GetRuntimeResponseCopy] = Decoder.forProduct15[GetRuntimeResponseCopy,
       RuntimeName,
       GoogleProject,
-      ServiceAccountInfo,
       WorkbenchEmail,
-      Option[GcsBucketName],
+      AuditInfo,
+      Option[AsyncRuntimeFields],
       RuntimeConfig,
       URL,
       ClusterStatus,
@@ -209,13 +213,13 @@ object AutomationTestJsonCodec {
       Option[UserJupyterExtensionConfig],
       Int](
       //TODO Change clusterName to runtimeName in the future. Pending PR
-      "clusterName",
+      "runtimeName",
       "googleProject",
-      "serviceAccountInfo",
-      "creator",
-      "stagingBucket",
-      "machineConfig",
-      "clusterUrl",
+      "serviceAccount",
+      "auditInfo",
+      "asyncRuntimeFields",
+      "runtimeConfig",
+      "proxyUrl",
       "status",
       "labels",
       "jupyterExtensionUri",
@@ -224,11 +228,10 @@ object AutomationTestJsonCodec {
       "errors",
       "userJupyterExtensionConfig",
       "autopauseThreshold"
-    ) { (cn, gp, sa, c, sb, mc, cu, status, l, jeu, jusu, jsusu, e,  ujec, at) =>
+    ) { (rn, gp, sa, ai, arf, rc, pu, status, l, jeu, jusu, jsusu, e,  ujec, at) =>
     //Figure this out
-      val auditInfo = AuditInfo(c, null, null, null, null);
-      val asyncRuntimeFields = sb.map(bucket=> AsyncRuntimeFields(GoogleId(null), null, bucket, null))
-      GetRuntimeResponseCopy(cn, gp, sa, auditInfo, asyncRuntimeFields, mc, cu, status, l, jeu, jusu, jsusu, e.getOrElse(List.empty), ujec, at)
+
+      GetRuntimeResponseCopy(rn, gp, sa, ai, arf, rc, pu, status, l, jeu, jusu, jsusu, e.getOrElse(List.empty), ujec, at)
     }
 
 }
