@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<databaseChangeLog logicalFilePath="leonardo" xmlns="http://www.liquibase.org/xml/ns/dbchangelog" xmlns:ext="http://www.liquibase.org/xml/ns/dbchangelog-ext" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog-ext http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-ext.xsd http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.4.xsd">
+
+    <changeSet logicalFilePath="leonardo" author="qi" id="cluster_table_gce_refactor">
+
+        <renameColumn columnDataType="int"
+                      newColumnName="clusterId"
+                      oldColumnName="runtimeConfigId"
+                      tableName="INSTANCE"/>
+
+        <sql>insert into RUNTIME_CONFIG (`clusterId`, `machineType`, `diskSize`, `numberOfWorkers`, `workerMachineType`, `workerDiskSize`, `numberOfWorkerLocalSSDs`, `numberOfPreemptibleWorkers`) select id, masterMachineType, masterDiskSize, numberOfWorkers, workerMachineType, workerDiskSize, numberOfWorkerLocalSSDs, numberOfPreemptibleWorkers from CLUSTER</sql>
+
+        <!--  Add runtimeConfigId column to CLUSTER table  -->
+        <update tableName="INSTANCE">
+            <column name="runtimeConfigId" valueComputed="(select RUNTIME_CONFIG.id from RUNTIME_CONFIG where CLUSTER.id=RUNTIME_CONFIG.clusterId)"/>
+        </update>
+
+        <createIndex indexName="IDX_INSTANCE_RUNTIME_CONFIG_ID" tableName="INSTANCE">
+            <column name="runtimeConfigId"/>
+        </createIndex>
+        <addForeignKeyConstraint baseColumnNames="runtimeConfigId" baseTableName="INSTANCE" constraintName="FK_INSTANCE_RUNTIME_CONFIG_ID" deferrable="false" initiallyDeferred="false" onDelete="NO ACTION" onUpdate="NO ACTION" referencedColumnNames="id" referencedTableName="RUNTIME_CONFIG"/>
+
+    </changeSet>
+</databaseChangeLog>
