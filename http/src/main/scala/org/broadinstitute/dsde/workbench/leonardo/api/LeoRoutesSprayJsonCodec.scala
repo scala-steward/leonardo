@@ -74,7 +74,7 @@ object LeoRoutesSprayJsonCodec extends DefaultJsonProtocol {
   implicit val listRuntimeResponseWriter: RootJsonWriter[ListRuntimeResponse] = (obj: ListRuntimeResponse) => {
     val allFields = Map(
       "id" -> obj.id.toJson,
-      "internalId" -> obj.internalId.asString.toJson,
+      "internalId" -> obj.samResource.resourceId.toJson,
       "clusterName" -> obj.clusterName.asString.toJson,
       "googleId" -> obj.asyncRuntimeFields.map(_.googleId.value.toJson).getOrElse(JsNull),
       "googleProject" -> obj.googleProject.toJson,
@@ -87,7 +87,7 @@ object LeoRoutesSprayJsonCodec extends DefaultJsonProtocol {
       "creator" -> obj.auditInfo.creator.toJson,
       "createdDate" -> obj.auditInfo.createdDate.toJson,
       "destroyedDate" -> obj.auditInfo.destroyedDate.toJson,
-      "kernelFoundBusyDate" -> obj.auditInfo.kernelFoundBusyDate.toJson,
+      "kernelFoundBusyDate" -> obj.kernelFoundBusyDate.toJson,
       "labels" -> obj.labels.toJson,
       "jupyterExtensionUri" -> obj.jupyterExtensionUri.map(_.toUri).toJson,
       "jupyterUserScriptUri" -> obj.jupyterUserScriptUri.map(_.asString).toJson,
@@ -148,7 +148,7 @@ object LeoRoutesSprayJsonCodec extends DefaultJsonProtocol {
   implicit val GetRuntimeFormat: RootJsonWriter[GetRuntimeResponse] = (obj: GetRuntimeResponse) => {
     val allFields = List(
       "id" -> obj.id.toJson,
-      "internalId" -> obj.internalId.asString.toJson,
+      "internalId" -> obj.samResource.resourceId.toJson,
       "clusterName" -> obj.clusterName.asString.toJson,
       "googleId" -> obj.asyncRuntimeFields.map(_.googleId.value).toJson,
       "googleProject" -> obj.googleProject.toJson,
@@ -161,7 +161,7 @@ object LeoRoutesSprayJsonCodec extends DefaultJsonProtocol {
       "creator" -> obj.auditInfo.creator.toJson,
       "createdDate" -> obj.auditInfo.createdDate.toJson,
       "destroyedDate" -> obj.auditInfo.destroyedDate.toJson,
-      "kernelFoundBusyDate" -> obj.auditInfo.kernelFoundBusyDate.toJson,
+      "kernelFoundBusyDate" -> obj.kernelFoundBusyDate.toJson,
       "labels" -> obj.labels.toJson,
       "jupyterExtensionUri" -> obj.jupyterExtensionUri.map(_.toUri).toJson,
       "jupyterUserScriptUri" -> obj.jupyterUserScriptUri.map(_.asString).toJson,
@@ -189,7 +189,7 @@ object LeoRoutesSprayJsonCodec extends DefaultJsonProtocol {
     (obj: CreateRuntimeResponse) => {
       val allFields = List(
         "id" -> obj.id.toJson,
-        "internalId" -> obj.internalId.asString.toJson,
+        "internalId" -> obj.samResource.resourceId.toJson,
         "clusterName" -> obj.clusterName.asString.toJson,
         "googleId" -> obj.asyncRuntimeFields.map(_.googleId.value).toJson,
         "googleProject" -> obj.googleProject.toJson,
@@ -202,7 +202,7 @@ object LeoRoutesSprayJsonCodec extends DefaultJsonProtocol {
         "creator" -> obj.auditInfo.creator.toJson,
         "createdDate" -> obj.auditInfo.createdDate.toJson,
         "destroyedDate" -> obj.auditInfo.destroyedDate.toJson,
-        "kernelFoundBusyDate" -> obj.auditInfo.kernelFoundBusyDate.toJson,
+        "kernelFoundBusyDate" -> obj.kernelFoundBusyDate.toJson,
         "labels" -> obj.labels.toJson,
         "jupyterExtensionUri" -> obj.jupyterExtensionUri.toJson,
         "jupyterUserScriptUri" -> obj.jupyterUserScriptUri.map(_.asString).toJson,
@@ -230,7 +230,7 @@ object LeoRoutesSprayJsonCodec extends DefaultJsonProtocol {
   implicit val UpdateRuntimeResponseFormat: RootJsonWriter[UpdateRuntimeResponse] = (obj: UpdateRuntimeResponse) => {
     val allFields = List(
       "id" -> obj.id.toJson,
-      "internalId" -> obj.internalId.asString.toJson,
+      "internalId" -> obj.samResource.resourceId.toJson,
       "clusterName" -> obj.clusterName.asString.toJson,
       "googleId" -> obj.asyncRuntimeFields.map(_.googleId.value).toJson,
       "googleProject" -> obj.googleProject.toJson,
@@ -243,7 +243,7 @@ object LeoRoutesSprayJsonCodec extends DefaultJsonProtocol {
       "creator" -> obj.auditInfo.creator.toJson,
       "createdDate" -> obj.auditInfo.createdDate.toJson,
       "destroyedDate" -> obj.auditInfo.destroyedDate.toJson,
-      "kernelFoundBusyDate" -> obj.auditInfo.kernelFoundBusyDate.toJson,
+      "kernelFoundBusyDate" -> obj.kernelFoundBusyDate.toJson,
       "labels" -> obj.labels.toJson,
       "jupyterExtensionUri" -> obj.jupyterExtensionUri.toJson,
       "jupyterUserScriptUri" -> obj.jupyterUserScriptUri.map(_.asString).toJson,

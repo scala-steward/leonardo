@@ -12,7 +12,7 @@ import cats.mtl.ApplicativeAsk
 import com.google.common.cache.{CacheBuilder, CacheLoader}
 import io.chrisdavenport.log4cats.Logger
 import org.broadinstitute.dsde.workbench.leonardo.dao.HttpSamDAO._
-import org.broadinstitute.dsde.workbench.leonardo.dao.{ResourceTypeName, SamDAO, _}
+import org.broadinstitute.dsde.workbench.leonardo.dao.{SamDAO, _}
 import org.broadinstitute.dsde.workbench.leonardo.model.NotebookClusterAction._
 import org.broadinstitute.dsde.workbench.leonardo.model.PersistentDiskAction._
 import org.broadinstitute.dsde.workbench.leonardo.model.ProjectAction.{CreateClusters, CreatePersistentDisk}
@@ -46,7 +46,7 @@ class SamAuthProvider[F[_]: Effect: Logger](samDao: SamDAO[F],
       new CacheLoader[NotebookAuthCacheKey, java.lang.Boolean] {
         override def load(key: NotebookAuthCacheKey): java.lang.Boolean = {
           implicit val traceId = ApplicativeAsk.const[F, TraceId](TraceId(UUID.randomUUID()))
-          checkNotebookClusterPermissionWithProjectFallback(key.internalId,
+          checkNotebookClusterPermissionWithProjectFallback(key.samResource,
                                                             key.authorization,
                                                             key.action,
                                                             key.googleProject,
@@ -109,16 +109,16 @@ class SamAuthProvider[F[_]: Effect: Logger](samDao: SamDAO[F],
   )
 
   override def hasProjectPermission(
+                                   samResource: SamResource.Project,
     userInfo: UserInfo,
     action: ProjectAction,
-    googleProject: GoogleProject
   )(implicit ev: ApplicativeAsk[F, TraceId]): F[Boolean] = {
     val authHeader = Authorization(Credentials.Token(AuthScheme.Bearer, userInfo.accessToken.token))
-    hasProjectPermissionInternal(googleProject, action, authHeader)
+    hasProjectPermissionInternal(samResource, action, authHeader)
   }
 
   override def hasNotebookClusterPermission(
-    internalId: RuntimeInternalId,
+    samResource: SamResource.Runtime,
     userInfo: UserInfo,
     action: NotebookClusterAction,
     googleProject: GoogleProject,
@@ -131,28 +131,28 @@ class SamAuthProvider[F[_]: Effect: Logger](samDao: SamDAO[F],
       blocker.blockOn(
         Effect[F].delay(
           notebookAuthCache
-            .get(NotebookAuthCacheKey(internalId, authorization, action, googleProject, clusterName))
+            .get(NotebookAuthCacheKey(samResource, authorization, action, googleProject, clusterName))
             .booleanValue()
         )
       )
     } else {
-      checkNotebookClusterPermissionWithProjectFallback(internalId, authorization, action, googleProject, clusterName)
+      checkNotebookClusterPermissionWithProjectFallback(samResource, authorization, action, googleProject, clusterName)
     }
   }
 
   override def hasPersistentDiskPermission(
-    internalId: PersistentDiskInternalId,
+    samResource: SamResource.PersistentDisk,
     userInfo: UserInfo,
     action: PersistentDiskAction,
     googleProject: GoogleProject
   )(implicit ev: ApplicativeAsk[F, TraceId]): F[Boolean] = {
     val authorization = Authorization(Credentials.Token(AuthScheme.Bearer, userInfo.accessToken.token))
     // can add check to cache here if necessary
-    checkPersistentDiskPermissionWithProjectFallback(internalId, authorization, action, googleProject)
+    checkPersistentDiskPermissionWithProjectFallback(samResource, authorization, action, googleProject)
   }
 
   private def checkNotebookClusterPermissionWithProjectFallback(
-    internalId: RuntimeInternalId,
+    samResource: SamResource.Runtime,
     authorization: Authorization,
     action: NotebookClusterAction,
     googleProject: GoogleProject,
@@ -160,13 +160,13 @@ class SamAuthProvider[F[_]: Effect: Logger](samDao: SamDAO[F],
   )(implicit ev: ApplicativeAsk[F, TraceId]): F[Boolean] =
     for {
       traceId <- ev.ask
-      hasNotebookAction <- hasNotebookClusterPermissionInternal(internalId, action, authorization)
+      hasNotebookAction <- hasNotebookClusterPermissionInternal(samResource, action, authorization)
       res <- if (action == ConnectToCluster) Sync[F].pure(hasNotebookAction)
       else {
         if (hasNotebookAction)
           Sync[F].pure(true)
         else
-          hasProjectPermissionInternal(googleProject, action, authorization).recoverWith {
+          hasProjectPermissionInternal(SamResource.Project(googleProject.value), action, authorization).recoverWith {
             case e =>
               Logger[F]
                 .info(e)(s"${traceId} | $action is not allowed at notebook-cluster level, nor project level")
@@ -176,21 +176,21 @@ class SamAuthProvider[F[_]: Effect: Logger](samDao: SamDAO[F],
     } yield res
 
   private def checkPersistentDiskPermissionWithProjectFallback(
-    internalId: PersistentDiskInternalId,
+    samResource: SamResource.PersistentDisk,
     authorization: Authorization,
     action: PersistentDiskAction,
     googleProject: GoogleProject
   )(implicit ev: ApplicativeAsk[F, TraceId]): F[Boolean] =
     for {
       traceId <- ev.ask
-      hasPersistentDiskAction <- hasPersistentDiskPermissionInternal(internalId, action, authorization)
+      hasPersistentDiskAction <- hasPersistentDiskPermissionInternal(samResource, action, authorization)
       diskLevelActions = Set(ReadPersistentDisk, AttachPersistentDisk, ModifyPersistentDisk)
       res <- if (diskLevelActions contains action) Sync[F].pure(hasPersistentDiskAction)
       else {
         if (hasPersistentDiskAction)
           Sync[F].pure(true)
         else
-          hasProjectPermissionInternal(googleProject, action, authorization).recoverWith {
+          hasProjectPermissionInternal(SamResource.Project(googleProject.value), action, authorization).recoverWith {
             case e =>
               Logger[F]
                 .info(e)(s"${traceId} | $action is not allowed at persistent-disk level, nor project level")
@@ -200,113 +200,108 @@ class SamAuthProvider[F[_]: Effect: Logger](samDao: SamDAO[F],
     } yield res
 
   private def hasProjectPermissionInternal(
-    googleProject: GoogleProject,
+                                          samResource: SamResource.Project,
     action: LeoAuthAction,
     authHeader: Authorization
   )(implicit ev: ApplicativeAsk[F, TraceId]): F[Boolean] =
     for {
       actionString <- Effect[F].fromEither(getProjectActionString(action))
-      res <- samDao.hasResourcePermission(googleProject.value,
+      res <- samDao.hasResourcePermission(samResource,
                                           actionString,
-                                          ResourceTypeName.BillingProject,
                                           authHeader)
     } yield res
 
   private def hasNotebookClusterPermissionInternal(
-    clusterInternalId: RuntimeInternalId,
+    samResource: SamResource.Runtime,
     action: LeoAuthAction,
     authHeader: Authorization
   )(implicit ev: ApplicativeAsk[F, TraceId]): F[Boolean] =
     for {
       actionString <- Effect[F].fromEither(getNotebookActionString(action))
-      res <- samDao.hasResourcePermission(clusterInternalId.asString,
+      res <- samDao.hasResourcePermission(samResource,
                                           actionString,
-                                          ResourceTypeName.NotebookCluster,
                                           authHeader)
     } yield res
 
   private def hasPersistentDiskPermissionInternal(
-    persistentDiskInternalId: PersistentDiskInternalId,
+    samResource: SamResource.PersistentDisk,
     action: LeoAuthAction,
     authHeader: Authorization
   )(implicit ev: ApplicativeAsk[F, TraceId]): F[Boolean] =
     for {
       actionString <- Effect[F].fromEither(getPersistentDiskActionString(action))
-      res <- samDao.hasResourcePermission(persistentDiskInternalId.asString,
+      res <- samDao.hasResourcePermission(samResource,
                                           actionString,
-                                          ResourceTypeName.PersistentDisk,
                                           authHeader)
     } yield res
 
-  override def filterUserVisibleClusters(userInfo: UserInfo, clusters: List[(GoogleProject, RuntimeInternalId)])(
+  override def filterUserVisibleClusters(userInfo: UserInfo, clusters: List[(GoogleProject, SamResource.Runtime)])(
     implicit ev: ApplicativeAsk[F, TraceId]
-  ): F[List[(GoogleProject, RuntimeInternalId)]] = {
+  ): F[List[(GoogleProject, SamResource.Runtime)]] = {
     val authHeader = Authorization(Credentials.Token(AuthScheme.Bearer, userInfo.accessToken.token))
     for {
-      projectPolicies <- samDao.getResourcePolicies[SamProjectPolicy](authHeader, ResourceTypeName.BillingProject)
+      projectPolicies <- samDao.getResourcePolicies[SamProjectPolicy](authHeader, SamResourceType.Project)
       owningProjects = projectPolicies.collect {
-        case x if (x.accessPolicyName == AccessPolicyName.Owner) => x.googleProject
+        case x if (x.accessPolicyName == AccessPolicyName.Owner) => x.samResource.googleProject
       }
       clusterPolicies <- samDao
-        .getResourcePolicies[SamNotebookClusterPolicy](authHeader, ResourceTypeName.NotebookCluster)
+        .getResourcePolicies[SamRuntimePolicy](authHeader, SamResourceType.Runtime)
       createdPolicies = clusterPolicies.filter(_.accessPolicyName == AccessPolicyName.Creator)
     } yield clusters.filter {
-      case (project, internalId) =>
-        owningProjects.contains(project) || createdPolicies.exists(_.internalId == internalId)
+      case (project, samResource) =>
+        owningProjects.contains(project) || createdPolicies.exists(_.samResource == samResource)
     }
   }
 
   override def filterUserVisiblePersistentDisks(userInfo: UserInfo,
-                                                disks: List[(GoogleProject, PersistentDiskInternalId)])(
+                                                disks: List[(GoogleProject, SamResource.PersistentDisk)])(
     implicit ev: ApplicativeAsk[F, TraceId]
-  ): F[List[(GoogleProject, PersistentDiskInternalId)]] = {
+  ): F[List[(GoogleProject, SamResource.PersistentDisk)]] = {
     val authHeader = Authorization(Credentials.Token(AuthScheme.Bearer, userInfo.accessToken.token))
     for {
-      projectPolicies <- samDao.getResourcePolicies[SamProjectPolicy](authHeader, ResourceTypeName.BillingProject)
+      projectPolicies <- samDao.getResourcePolicies[SamProjectPolicy](authHeader, SamResourceType.Project)
       owningProjects = projectPolicies.collect {
-        case x if (x.accessPolicyName == AccessPolicyName.Owner) => x.googleProject
+        case x if (x.accessPolicyName == AccessPolicyName.Owner) => x.samResource.googleProject
       }
       diskPolicies <- samDao
-        .getResourcePolicies[SamPersistentDiskPolicy](authHeader, ResourceTypeName.PersistentDisk)
+        .getResourcePolicies[SamPersistentDiskPolicy](authHeader, SamResourceType.PersistentDisk)
       createdPolicies = diskPolicies.filter(_.accessPolicyName == AccessPolicyName.Creator)
     } yield disks.filter {
-      case (project, internalId) =>
-        owningProjects.contains(project) || createdPolicies.exists(_.internalId == internalId)
+      case (project, samResource) =>
+        owningProjects.contains(project) || createdPolicies.exists(_.samResource == samResource)
     }
   }
 
-  override def notifyClusterCreated(internalId: RuntimeInternalId,
+  override def notifyClusterCreated(samResource: SamResource.Runtime,
                                     creatorEmail: WorkbenchEmail,
-                                    googleProject: GoogleProject,
-                                    clusterName: RuntimeName)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit] =
-    samDao.createClusterResource(internalId, creatorEmail, googleProject, clusterName)
+                                    googleProject: GoogleProject)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit] =
+    samDao.createResource(samResource, creatorEmail, googleProject)
 
-  override def notifyClusterDeleted(internalId: RuntimeInternalId,
+  override def notifyClusterDeleted(samResource: SamResource.Runtime,
                                     userEmail: WorkbenchEmail,
                                     creatorEmail: WorkbenchEmail,
-                                    googleProject: GoogleProject,
-                                    clusterName: RuntimeName)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit] =
-    samDao.deleteClusterResource(internalId, userEmail, creatorEmail, googleProject, clusterName)
+                                    googleProject: GoogleProject)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit] =
+    samDao.deleteResource(samResource, userEmail, creatorEmail, googleProject)
 
   override def notifyPersistentDiskCreated(
-    internalId: PersistentDiskInternalId,
+    samResource: SamResource.PersistentDisk,
     creatorEmail: WorkbenchEmail,
     googleProject: GoogleProject
   )(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit] =
-    samDao.createPersistentDiskResource(internalId, creatorEmail, googleProject)
+    samDao.createResource(samResource, creatorEmail, googleProject)
 
   override def notifyPersistentDiskDeleted(
-    internalId: PersistentDiskInternalId,
+    samResource: SamResource.PersistentDisk,
     userEmail: WorkbenchEmail,
     creatorEmail: WorkbenchEmail,
     googleProject: GoogleProject
   )(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit] =
-    samDao.deletePersistentDiskResource(internalId, userEmail, creatorEmail, googleProject)
+    samDao.deleteResource(samResource, userEmail, creatorEmail, googleProject)
 }
 final case class SamAuthProviderConfig(notebookAuthCacheEnabled: Boolean,
                                        notebookAuthCacheMaxSize: Int = 1000,
                                        notebookAuthCacheExpiryTime: FiniteDuration = 15 minutes)
-private[sam] case class NotebookAuthCacheKey(internalId: RuntimeInternalId,
+private[sam] case class NotebookAuthCacheKey(samResource: SamResource.Runtime,
                                              authorization: Authorization,
                                              action: NotebookClusterAction,
                                              googleProject: GoogleProject,

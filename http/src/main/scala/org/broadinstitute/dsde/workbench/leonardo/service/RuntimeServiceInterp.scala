@@ -57,7 +57,7 @@ class RuntimeServiceInterp[F[_]: Parallel](config: RuntimeServiceConfig,
   )(implicit as: ApplicativeAsk[F, AppContext]): F[Unit] =
     for {
       context <- as.ask
-      hasPermission <- authProvider.hasProjectPermission(userInfo, CreateClusters, googleProject)
+      hasPermission <- authProvider.hasProjectPermission(SamResource.Project(googleProject), userInfo, CreateClusters)
       _ <- if (hasPermission) F.unit else F.raiseError[Unit](AuthorizationError(Some(userInfo.userEmail)))
       // Grab the service accounts from serviceAccountProvider for use later
       clusterServiceAccountOpt <- serviceAccountProvider
@@ -72,7 +72,7 @@ class RuntimeServiceInterp[F[_]: Parallel](config: RuntimeServiceConfig,
         case Some(c) => F.raiseError[Unit](RuntimeAlreadyExistsException(googleProject, runtimeName, c.status))
         case None =>
           for {
-            internalId <- F.delay(RuntimeInternalId(UUID.randomUUID().toString))
+            samResource <- F.delay(SamResource.Runtime(UUID.randomUUID().toString))
             petToken <- serviceAccountProvider.getAccessToken(userInfo.userEmail, googleProject).recoverWith {
               case e =>
                 log.warn(e)(
@@ -86,7 +86,7 @@ class RuntimeServiceInterp[F[_]: Parallel](config: RuntimeServiceConfig,
                                petSA,
                                googleProject,
                                runtimeName,
-                               internalId,
+                samResource,
                                clusterImages,
                                config,
                                req,
@@ -106,7 +106,7 @@ class RuntimeServiceInterp[F[_]: Parallel](config: RuntimeServiceConfig,
                 .parTraverse(s => validateBucketObjectUri(userInfo.userEmail, t, s, context.traceId))
             )
             _ <- authProvider
-              .notifyClusterCreated(internalId, userInfo.userEmail, googleProject, runtimeName)
+              .notifyClusterCreated(samResource, userInfo.userEmail, googleProject, runtimeName)
               .handleErrorWith { t =>
                 log.error(t)(
                   s"[${context.traceId}] Failed to notify the AuthProvider for creation of cluster ${runtime.projectNameString}"
@@ -142,7 +142,7 @@ class RuntimeServiceInterp[F[_]: Parallel](config: RuntimeServiceConfig,
       // throws 404 if not existent
       resp <- LeonardoServiceDbQueries.getGetClusterResponse(googleProject, runtimeName).transaction
       // throw 404 if no GetClusterStatus permission
-      hasPermission <- authProvider.hasNotebookClusterPermission(resp.internalId,
+      hasPermission <- authProvider.hasNotebookClusterPermission(resp.samResource,
                                                                  userInfo,
                                                                  GetClusterStatus,
                                                                  googleProject,
@@ -157,13 +157,13 @@ class RuntimeServiceInterp[F[_]: Parallel](config: RuntimeServiceConfig,
       paramMap <- F.fromEither(processListClustersParameters(params))
       clusters <- RuntimeServiceDbQueries.listClusters(paramMap._1, paramMap._2, googleProject).transaction
       samVisibleClusters <- authProvider
-        .filterUserVisibleClusters(userInfo, clusters.map(c => (c.googleProject, c.internalId)))
+        .filterUserVisibleClusters(userInfo, clusters.map(c => (c.googleProject, c.samResource)))
     } yield {
       // Making the assumption that users will always be able to access clusters that they create
       // Fix for https://github.com/DataBiosphere/leonardo/issues/821
       clusters
         .filter(c =>
-          c.auditInfo.creator == userInfo.userEmail || samVisibleClusters.contains((c.googleProject, c.internalId))
+          c.auditInfo.creator == userInfo.userEmail || samVisibleClusters.contains((c.googleProject, c.samResource))
         )
         .toVector
     }
@@ -178,7 +178,7 @@ class RuntimeServiceInterp[F[_]: Parallel](config: RuntimeServiceConfig,
       // throw 404 if no GetClusterStatus permission
       // Note: the general pattern is to 404 (e.g. pretend the runtime doesn't exist) if the caller doesn't have
       // GetClusterStatus permission. We return 403 if the user can view the runtime but can't perform some other action.
-      hasPermission <- authProvider.hasNotebookClusterPermission(runtime.internalId,
+      hasPermission <- authProvider.hasNotebookClusterPermission(runtime.samResource,
                                                                  userInfo,
                                                                  GetClusterStatus,
                                                                  googleProject,
@@ -511,7 +511,7 @@ object RuntimeServiceInterp {
                                serviceAccountInfo: WorkbenchEmail,
                                googleProject: GoogleProject,
                                runtimeName: RuntimeName,
-                               clusterInternalId: RuntimeInternalId,
+                               samResource: SamResource.Runtime,
                                clusterImages: Set[RuntimeImage],
                                config: RuntimeServiceConfig,
                                req: CreateRuntime2Request,
@@ -564,12 +564,13 @@ object RuntimeServiceInterp {
         Right(allLabels)
     } yield Runtime(
       0,
-      internalId = clusterInternalId,
+      samResource = samResource,
       runtimeName = runtimeName,
       googleProject = googleProject,
       serviceAccount = serviceAccountInfo,
       asyncRuntimeFields = None,
-      auditInfo = AuditInfo(userInfo.userEmail, now, None, now, None),
+      auditInfo = AuditInfo(userInfo.userEmail, now, None, now),
+      kernelFoundBusyDate = None,
       proxyUrl = Runtime.getProxyUrl(config.proxyUrlBase, googleProject, runtimeName, clusterImages, labels),
       status = RuntimeStatus.Creating,
       labels = labels,

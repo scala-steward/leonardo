@@ -11,35 +11,23 @@ import org.http4s.headers.Authorization
 trait SamDAO[F[_]] {
   def getStatus(implicit ev: ApplicativeAsk[F, TraceId]): F[StatusCheckResponse]
 
-  def hasResourcePermission(resourceId: String,
+  def hasResourcePermission(samResource: SamResource,
                             action: String,
-                            resourceTypeName: ResourceTypeName,
                             authHeader: Authorization)(implicit ev: ApplicativeAsk[F, TraceId]): F[Boolean]
 
-  def getResourcePolicies[A](authHeader: Authorization, resourseTypeName: ResourceTypeName)(
+  def getResourcePolicies[A](authHeader: Authorization, samResourceType: SamResourceType)(
     implicit decoder: EntityDecoder[F, List[A]],
     ev: ApplicativeAsk[F, TraceId]
   ): F[List[A]]
 
-  def createClusterResource(internalId: RuntimeInternalId,
+  def createResource(samResource: SamResource,
                             creatorEmail: WorkbenchEmail,
-                            googleProject: GoogleProject,
-                            runtimeName: RuntimeName)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit]
+                            googleProject: GoogleProject)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit]
 
-  def deleteClusterResource(internalId: RuntimeInternalId,
+  def deleteResource(samResource: SamResource,
                             userEmail: WorkbenchEmail,
                             creatorEmail: WorkbenchEmail,
-                            googleProject: GoogleProject,
-                            runtimeName: RuntimeName)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit]
-
-  def createPersistentDiskResource(internalId: PersistentDiskInternalId,
-                                   creatorEmail: WorkbenchEmail,
-                                   googleProject: GoogleProject)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit]
-
-  def deletePersistentDiskResource(internalId: PersistentDiskInternalId,
-                                   userEmail: WorkbenchEmail,
-                                   creatorEmail: WorkbenchEmail,
-                                   googleProject: GoogleProject)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit]
+                            googleProject: GoogleProject)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit]
 
   def getPetServiceAccount(authorization: Authorization, googleProject: GoogleProject)(
     implicit ev: ApplicativeAsk[F, TraceId]

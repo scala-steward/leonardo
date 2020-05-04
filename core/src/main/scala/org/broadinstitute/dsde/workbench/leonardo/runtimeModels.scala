@@ -19,12 +19,13 @@ import scala.collection.immutable
  */
 /** The runtime itself */
 final case class Runtime(id: Long,
-                         internalId: RuntimeInternalId,
+                         samResource: SamResource.Runtime,
                          runtimeName: RuntimeName,
                          googleProject: GoogleProject,
                          serviceAccount: WorkbenchEmail,
                          asyncRuntimeFields: Option[AsyncRuntimeFields],
                          auditInfo: AuditInfo,
+                         kernelFoundBusyDate: Option[Instant],
                          proxyUrl: URL,
                          status: RuntimeStatus,
                          labels: LabelMap,
@@ -293,8 +294,7 @@ final case class RuntimeImage(imageType: RuntimeImageType, imageUrl: String, tim
 final case class AuditInfo(creator: WorkbenchEmail,
                            createdDate: Instant,
                            destroyedDate: Option[Instant],
-                           dateAccessed: Instant,
-                           kernelFoundBusyDate: Option[Instant])
+                           dateAccessed: Instant)
 
 /** UIs that can be used to access a runtime */
 sealed trait RuntimeUI extends Product with Serializable {
@@ -363,7 +363,6 @@ final case class RunningRuntime(googleProject: GoogleProject,
                                 runtimeName: RuntimeName,
                                 containers: List[RuntimeContainerServiceType])
 
-final case class RuntimeInternalId(asString: String) extends AnyVal
 final case class RuntimeName(asString: String) extends AnyVal
 final case class RuntimeError(errorMessage: String, errorCode: Int, timestamp: Instant)
 final case class RuntimeErrorDetails(code: Int, message: Option[String])
@@ -378,8 +377,6 @@ final case class NetworkTag(value: String) extends ValueObject
 final case class OperationName(value: String) extends ValueObject
 final case class GoogleOperation(name: OperationName, id: GoogleId)
 final case class GoogleId(value: String) extends AnyVal
-
-final case class PersistentDiskInternalId(asString: String) extends AnyVal
 
 sealed trait RuntimeOperation extends Product with Serializable {
   def asString: String

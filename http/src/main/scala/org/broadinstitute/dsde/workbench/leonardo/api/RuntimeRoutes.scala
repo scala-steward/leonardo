@@ -438,7 +438,7 @@ final case class UpdateRuntimeRequest(updatedRuntimeConfig: Option[UpdateRuntime
                                       updateAutopauseThreshold: Option[FiniteDuration])
 
 final case class ListRuntimeResponse2(id: Long,
-                                      internalId: RuntimeInternalId,
+                                      samResource: SamResource.Runtime,
                                       clusterName: RuntimeName,
                                       googleProject: GoogleProject,
                                       auditInfo: AuditInfo,

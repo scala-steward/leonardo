@@ -45,7 +45,9 @@ abstract class LeoAuthProvider[F[_]] {
    * @param googleProject The Google project to check in
    * @return If the given user has permissions in this project to perform the specified action.
    */
-  def hasProjectPermission(userInfo: UserInfo, action: ProjectAction, googleProject: GoogleProject)(
+  def hasProjectPermission(samResource: SamResource.Project,
+                           userInfo: UserInfo,
+                           action: ProjectAction)(
     implicit ev: ApplicativeAsk[F, TraceId]
   ): F[Boolean]
 
@@ -59,7 +61,7 @@ abstract class LeoAuthProvider[F[_]] {
    * @param runtimeName   The user-provided name of the Dataproc cluster
    * @return If the userEmail has permission on this individual notebook cluster to perform this action
    */
-  def hasNotebookClusterPermission(internalId: RuntimeInternalId,
+  def hasNotebookClusterPermission(samResource: SamResource.Runtime,
                                    userInfo: UserInfo,
                                    action: NotebookClusterAction,
                                    googleProject: GoogleProject,
@@ -74,7 +76,7 @@ abstract class LeoAuthProvider[F[_]] {
    * @param googleProject  The Google project the persistent disk was created in
    * @return If the userEmail has permission on this individual notebook cluster to perform this action
    */
-  def hasPersistentDiskPermission(internalId: PersistentDiskInternalId,
+  def hasPersistentDiskPermission(samResource: SamResource.PersistentDisk,
                                   userInfo: UserInfo,
                                   action: PersistentDiskAction,
                                   googleProject: GoogleProject)(implicit ev: ApplicativeAsk[F, TraceId]): F[Boolean]
@@ -87,9 +89,9 @@ abstract class LeoAuthProvider[F[_]] {
    * @param clusters All non-deleted clusters from the database
    * @return         Filtered list of clusters that the user is allowed to see
    */
-  def filterUserVisibleClusters(userInfo: UserInfo, clusters: List[(GoogleProject, RuntimeInternalId)])(
+  def filterUserVisibleClusters(userInfo: UserInfo, clusters: List[(GoogleProject, SamResource.Runtime)])(
     implicit ev: ApplicativeAsk[F, TraceId]
-  ): F[List[(GoogleProject, RuntimeInternalId)]]
+  ): F[List[(GoogleProject, SamResource.Runtime)]]
 
   /**
    * Leo calls this method when it receives a "list persistent disks" API call, passing in all non-deleted disks from the database.
@@ -99,9 +101,9 @@ abstract class LeoAuthProvider[F[_]] {
    * @param disks    All non-deleted disks from the database
    * @return         Filtered list of disks that the user is allowed to see
    */
-  def filterUserVisiblePersistentDisks(userInfo: UserInfo, disks: List[(GoogleProject, PersistentDiskInternalId)])(
+  def filterUserVisiblePersistentDisks(userInfo: UserInfo, disks: List[(GoogleProject, SamResource.PersistentDisk)])(
     implicit ev: ApplicativeAsk[F, TraceId]
-  ): F[List[(GoogleProject, PersistentDiskInternalId)]]
+  ): F[List[(GoogleProject, SamResource.PersistentDisk)]]
 
   //Notifications that Leo has created/destroyed clusters. Allows the auth provider to register things.
 
@@ -117,10 +119,9 @@ abstract class LeoAuthProvider[F[_]] {
    * @param runtimeName   The user-provided name of the Dataproc cluster
    * @return A Future that will complete when the auth provider has finished doing its business.
    */
-  def notifyClusterCreated(internalId: RuntimeInternalId,
+  def notifyClusterCreated(samResource: SamResource.Runtime,
                            creatorEmail: WorkbenchEmail,
-                           googleProject: GoogleProject,
-                           runtimeName: RuntimeName)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit]
+                           googleProject: GoogleProject)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit]
 
   /**
    * Leo calls this method to notify the auth provider that a notebook cluster has been deleted.
@@ -134,11 +135,10 @@ abstract class LeoAuthProvider[F[_]] {
    * @param runtimeName   The user-provided name of the Dataproc cluster
    * @return A Future that will complete when the auth provider has finished doing its business.
    */
-  def notifyClusterDeleted(internalId: RuntimeInternalId,
+  def notifyClusterDeleted(samResource: SamResource.Runtime,
                            userEmail: WorkbenchEmail,
                            creatorEmail: WorkbenchEmail,
-                           googleProject: GoogleProject,
-                           runtimeName: RuntimeName)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit]
+                           googleProject: GoogleProject)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit]
 
   /**
    * Leo calls this method to notify the auth provider that a new persistent disk has been created.
@@ -151,7 +151,7 @@ abstract class LeoAuthProvider[F[_]] {
    * @param googleProject  The Google project the disk was created in
    * @return A Future that will complete when the auth provider has finished doing its business.
    */
-  def notifyPersistentDiskCreated(internalId: PersistentDiskInternalId,
+  def notifyPersistentDiskCreated(samResource: SamResource.PersistentDisk,
                                   creatorEmail: WorkbenchEmail,
                                   googleProject: GoogleProject)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit]
 
@@ -166,7 +166,7 @@ abstract class LeoAuthProvider[F[_]] {
    * @param googleProject The Google project the disk was created in
    * @return A Future that will complete when the auth provider has finished doing its business.
    */
-  def notifyPersistentDiskDeleted(internalId: PersistentDiskInternalId,
+  def notifyPersistentDiskDeleted(samResource: SamResource.PersistentDisk,
                                   userEmail: WorkbenchEmail,
                                   creatorEmail: WorkbenchEmail,
                                   googleProject: GoogleProject)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit]

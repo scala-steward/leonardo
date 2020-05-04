@@ -63,16 +63,15 @@ class HttpSamDAO[F[_]: Effect](httpClient: Client[F], config: HttpSamDaoConfig, 
       )
     )(onError)
 
-  def hasResourcePermission(resourceId: String,
+  def hasResourcePermission(samResource: SamResource,
                             action: String,
-                            resourceTypeName: ResourceTypeName,
                             authHeader: Authorization)(implicit ev: ApplicativeAsk[F, TraceId]): F[Boolean] =
     for {
       res <- httpClient.expectOr[Boolean](
         Request[F](
           method = Method.GET,
           uri = config.samUri
-            .withPath(s"/api/resources/v1/${resourceTypeName.toString}/${resourceId}/action/${action}"),
+            .withPath(s"/api/resources/v1/${samResource.resourceType.asString}/${samResource.resourceId}/action/${action}"),
           headers = Headers.of(authHeader)
         )
       )(onError)
@@ -80,33 +79,17 @@ class HttpSamDAO[F[_]: Effect](httpClient: Client[F], config: HttpSamDaoConfig, 
 
   def getResourcePolicies[A](
     authHeader: Authorization,
-    resourseTypeName: ResourceTypeName
+    samResourceType: SamResourceType
   )(implicit decoder: EntityDecoder[F, List[A]], ev: ApplicativeAsk[F, TraceId]): F[List[A]] =
     httpClient.expectOr[List[A]](
       Request[F](
         method = Method.GET,
-        uri = config.samUri.withPath(s"/api/resources/v1/${resourseTypeName.toString}"),
+        uri = config.samUri.withPath(s"/api/resources/v1/${samResourceType.asString}"),
         headers = Headers.of(authHeader)
       )
     )(onError)
 
-  //Notifications that Leo has created/destroyed clusters. Allows the auth provider to register things.
-  /**
-   * Leo calls this method to notify the auth provider that a new notebook cluster has been created.
-   * The returned future should complete once the provider has finished doing any associated work.
-   * Returning a failed Future will prevent the cluster from being created, and will call notifyClusterDeleted for the same cluster.
-   * Leo will wait, so be timely!
-   *
-   * @param internalId     The internal ID for the cluster (i.e. used for Sam resources)
-   * @param creatorEmail     The email address of the user in question
-   * @param googleProject The Google project the cluster was created in
-   * @param runtimeName   The user-provided name of the Dataproc cluster
-   * @return A Future that will complete when the auth provider has finished doing its business.
-   */
-  def createClusterResource(internalId: RuntimeInternalId,
-                            creatorEmail: WorkbenchEmail,
-                            googleProject: GoogleProject,
-                            runtimeName: RuntimeName)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit] =
+  def createResource(resource: SamResource, creatorEmail: WorkbenchEmail, googleProject: GoogleProject)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit] = {
     for {
       traceId <- ev.ask
       token <- getCachedPetAccessToken(creatorEmail, googleProject).flatMap(
@@ -118,13 +101,13 @@ class HttpSamDAO[F[_]: Effect](httpClient: Client[F], config: HttpSamDaoConfig, 
       )
       authHeader = Authorization(Credentials.Token(AuthScheme.Bearer, token))
       _ <- logger.info(
-        s"${traceId} | creating notebook-cluster resource in sam for ${googleProject}/${runtimeName}/${internalId}"
+        s"${traceId} | creating ${resource.resourceType.asString} resource in Sam for ${googleProject}/${resource.resourceId}"
       )
       _ <- httpClient.fetch[Unit](
         Request[F](
           method = Method.POST,
           uri = config.samUri
-            .withPath(s"/api/resources/v1/${ResourceTypeName.NotebookCluster.toString}/${internalId.asString}"),
+            .withPath(s"/api/resources/v1/${resource.resourceType.asString}/${resource.resourceId}"),
           headers = Headers.of(authHeader)
         )
       ) { resp =>
@@ -134,66 +117,12 @@ class HttpSamDAO[F[_]: Effect](httpClient: Client[F], config: HttpSamDaoConfig, 
           onError(resp).flatMap(Effect[F].raiseError)
       }
     } yield ()
+  }
 
-  /**
-   * Leo calls this method to notify the auth provider that a notebook cluster has been deleted.
-   * The returned future should complete once the provider has finished doing any associated work.
-   * Leo will wait, so be timely!
-   *
-   * @param internalId     The internal ID for the cluster (i.e. used for Sam resources)
-   * @param userEmail        The email address of the user in question
-   * @param creatorEmail     The email address of the creator of the cluster
-   * @param googleProject    The Google project the cluster was created in
-   * @param runtimeName      The user-provided name of the Dataproc cluster
-   * @return A Future that will complete when the auth provider has finished doing its business.
-   */
-  def deleteClusterResource(internalId: RuntimeInternalId,
-                            userEmail: WorkbenchEmail,
-                            creatorEmail: WorkbenchEmail,
-                            googleProject: GoogleProject,
-                            runtimeName: RuntimeName)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit] =
-    for {
-      traceId <- ev.ask
-      token <- getCachedPetAccessToken(creatorEmail, googleProject).flatMap(
-        _.fold(
-          Effect[F].raiseError[String](
-            AuthProviderException(traceId, s"No pet SA found for ${creatorEmail} in ${googleProject}")
-          )
-        )(s => Effect[F].pure(s))
-      )
-      authHeader = Authorization(Credentials.Token(AuthScheme.Bearer, token))
-      _ <- httpClient.fetch[Unit](
-        Request[F](
-          method = Method.DELETE,
-          uri = config.samUri
-            .withPath(s"/api/resources/v1/${ResourceTypeName.NotebookCluster.toString}/${internalId.asString}"),
-          headers = Headers.of(authHeader)
-        )
-      ) { resp =>
-        resp.status match {
-          case Status.NotFound =>
-            logger.info(s"Fail to delete ${googleProject}/${internalId} because cluster doesn't exist in SAM")
-          case s if (s.isSuccess) => Effect[F].unit
-          case _                  => onError(resp).flatMap(Effect[F].raiseError)
-        }
-      }
-    } yield ()
-
-  //Notifications that Leo has created/destroyed persistent disks. Allows the auth provider to register things.
-  /**
-   * Leo calls this method to notify the auth provider that a new persistent disk has been created.
-   * The returned future should complete once the provider has finished doing any associated work.
-   * Returning a failed Future will prevent the disk from being created, and will call notifyPersistentDiskDeleted for the same disk.
-   * Leo will wait, so be timely!
-   *
-   * @param internalId     The internal ID for the disk (i.e. used for Sam resources)
-   * @param creatorEmail   The email address of the user in question
-   * @param googleProject  The Google project the disk was created in
-   * @return A Future that will complete when the auth provider has finished doing its business.
-   */
-  def createPersistentDiskResource(internalId: PersistentDiskInternalId,
-                                   creatorEmail: WorkbenchEmail,
-                                   googleProject: GoogleProject)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit] =
+  def deleteResource(resource: SamResource,
+                                        userEmail: WorkbenchEmail,
+                                        creatorEmail: WorkbenchEmail,
+                                        googleProject: GoogleProject)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit] =
     for {
       traceId <- ev.ask
       token <- getCachedPetAccessToken(creatorEmail, googleProject).flatMap(
@@ -205,59 +134,19 @@ class HttpSamDAO[F[_]: Effect](httpClient: Client[F], config: HttpSamDaoConfig, 
       )
       authHeader = Authorization(Credentials.Token(AuthScheme.Bearer, token))
       _ <- logger.info(
-        s"${traceId} | creating persistent-disk resource in sam for ${googleProject}/${internalId}"
+        s"${traceId} | deleting ${resource.resourceType.asString} resource in Sam for ${googleProject}/${resource.resourceId}"
       )
-      _ <- httpClient.fetch[Unit](
-        Request[F](
-          method = Method.POST,
-          uri = config.samUri
-            .withPath(s"/api/resources/v1/${ResourceTypeName.PersistentDisk.toString}/${internalId.asString}"),
-          headers = Headers.of(authHeader)
-        )
-      ) { resp =>
-        if (resp.status.isSuccess)
-          Effect[F].unit
-        else
-          onError(resp).flatMap(Effect[F].raiseError)
-      }
-    } yield ()
-
-  /**
-   * Leo calls this method to notify the auth provider that a persistent disk has been deleted.
-   * The returned future should complete once the provider has finished doing any associated work.
-   * Leo will wait, so be timely!
-   *
-   * @param internalId      The internal ID for the disk (i.e. used for Sam resources)
-   * @param userEmail       The email address of the user in question
-   * @param creatorEmail    The email address of the creator of the disk
-   * @param googleProject   The Google project the disk was created in
-   * @return A Future that will complete when the auth provider has finished doing its business.
-   */
-  def deletePersistentDiskResource(internalId: PersistentDiskInternalId,
-                                   userEmail: WorkbenchEmail,
-                                   creatorEmail: WorkbenchEmail,
-                                   googleProject: GoogleProject)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit] =
-    for {
-      traceId <- ev.ask
-      token <- getCachedPetAccessToken(creatorEmail, googleProject).flatMap(
-        _.fold(
-          Effect[F].raiseError[String](
-            AuthProviderException(traceId, s"No pet SA found for ${creatorEmail} in ${googleProject}")
-          )
-        )(s => Effect[F].pure(s))
-      )
-      authHeader = Authorization(Credentials.Token(AuthScheme.Bearer, token))
       _ <- httpClient.fetch[Unit](
         Request[F](
           method = Method.DELETE,
           uri = config.samUri
-            .withPath(s"/api/resources/v1/${ResourceTypeName.PersistentDisk.toString}/${internalId.asString}"),
+            .withPath(s"/api/resources/v1/${resource.resourceType.asString}/${resource.resourceId}"),
           headers = Headers.of(authHeader)
         )
       ) { resp =>
         resp.status match {
           case Status.NotFound =>
-            logger.info(s"Fail to delete ${googleProject}/${internalId} because persistent disk doesn't exist in SAM")
+            logger.info(s"${traceId} | Fail to delete ${googleProject}/${resource.resourceType.asString}/${resource.resourceId} because resource doesn't exist in SAM")
           case s if (s.isSuccess) => Effect[F].unit
           case _                  => onError(resp).flatMap(Effect[F].raiseError)
         }
@@ -344,23 +233,23 @@ object HttpSamDAO {
 
   implicit val accessPolicyNameDecoder: Decoder[AccessPolicyName] =
     Decoder.decodeString.map(s => AccessPolicyName.stringToAccessPolicyName.getOrElse(s, AccessPolicyName.Other(s)))
-  implicit val samClusterPolicyDecoder: Decoder[SamNotebookClusterPolicy] = Decoder.instance { c =>
+  implicit val samRuntimePolicyDecoder: Decoder[SamRuntimePolicy] = Decoder.instance { c =>
     for {
       policyName <- c.downField("accessPolicyName").as[AccessPolicyName]
-      runtimeInternalId <- c.downField("resourceId").as[RuntimeInternalId]
-    } yield SamNotebookClusterPolicy(policyName, runtimeInternalId)
+      resourceId <- c.downField("resourceId").as[String]
+    } yield SamRuntimePolicy(policyName, SamResource.Runtime(resourceId))
   }
   implicit val samProjectPolicyDecoder: Decoder[SamProjectPolicy] = Decoder.instance { c =>
     for {
       policyName <- c.downField("accessPolicyName").as[AccessPolicyName]
-      project <- c.downField("resourceId").as[GoogleProject]
-    } yield SamProjectPolicy(policyName, project)
+      resourceId <- c.downField("resourceId").as[GoogleProject]
+    } yield SamProjectPolicy(policyName, resourceId)
   }
   implicit val samPersistentDiskPolicyDecoder: Decoder[SamPersistentDiskPolicy] = Decoder.instance { c =>
     for {
       policyName <- c.downField("accessPolicyName").as[AccessPolicyName]
-      diskInternalId <- c.downField("resourceId").as[PersistentDiskInternalId]
-    } yield SamPersistentDiskPolicy(policyName, diskInternalId)
+      resourceId <- c.downField("resourceId").as[String]
+    } yield SamPersistentDiskPolicy(policyName, SamResource.PersistentDisk(resourceId))
   }
   val subsystemStatusDecoder: Decoder[SubsystemStatus] = Decoder.instance { c =>
     for {
@@ -383,6 +272,7 @@ final case class HttpSamDaoConfig(samUri: Uri,
                                   petCacheExpiryTime: FiniteDuration,
                                   petCacheMaxSize: Int,
                                   serviceAccountProviderConfig: ServiceAccountProviderConfig)
+
 sealed trait AccessPolicyName extends Serializable with Product
 object AccessPolicyName {
   final case object Creator extends AccessPolicyName {
@@ -397,30 +287,12 @@ object AccessPolicyName {
 
   val stringToAccessPolicyName: Map[String, AccessPolicyName] =
     sealerate.collect[AccessPolicyName].map(p => (p.toString, p)).toMap
-
 }
-final case class SamNotebookClusterPolicy(accessPolicyName: AccessPolicyName, internalId: RuntimeInternalId)
-final case class SamPersistentDiskPolicy(accessPolicyName: AccessPolicyName, internalId: PersistentDiskInternalId)
-final case class SamProjectPolicy(accessPolicyName: AccessPolicyName, googleProject: GoogleProject)
+
+final case class SamRuntimePolicy(accessPolicyName: AccessPolicyName, samResource: SamResource.Runtime)
+final case class SamPersistentDiskPolicy(accessPolicyName: AccessPolicyName, samResource: SamResource.PersistentDisk)
+final case class SamProjectPolicy(accessPolicyName: AccessPolicyName, samResource: SamResource.Project)
 final case class UserEmailAndProject(userEmail: WorkbenchEmail, googleProject: GoogleProject)
-
-sealed abstract class ResourceTypeName extends Product with Serializable {
-  type ResourcePolicy
-}
-object ResourceTypeName {
-  final case object NotebookCluster extends ResourceTypeName {
-    override def toString: String = "notebook-cluster"
-    override type ResourcePolicy = SamNotebookClusterPolicy
-  }
-  final case object PersistentDisk extends ResourceTypeName {
-    override def toString: String = "persistent-disk"
-    override type ResourcePolicy = SamPersistentDiskPolicy
-  }
-  final case object BillingProject extends ResourceTypeName {
-    override def toString: String = "billing-project"
-    override type ResourcePolicy = SamProjectPolicy
-  }
-}
 
 final case object NotFoundException extends NoStackTrace
 final case class AuthProviderException(traceId: TraceId, msg: String)

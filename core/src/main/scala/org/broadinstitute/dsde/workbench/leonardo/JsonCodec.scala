@@ -72,12 +72,11 @@ object JsonCodec {
     "combinedExtensions",
     "labExtensions"
   )(x => UserJupyterExtensionConfig.unapply(x).get)
-  implicit val auditInfoEncoder: Encoder[AuditInfo] = Encoder.forProduct5(
+  implicit val auditInfoEncoder: Encoder[AuditInfo] = Encoder.forProduct4(
     "creator",
     "createdDate",
     "destroyedDate",
-    "dateAccessed",
-    "kernelFoundBusyDate"
+    "dateAccessed"
   )(x => AuditInfo.unapply(x).get)
   implicit val runtimeImageTypeEncoder: Encoder[RuntimeImageType] = Encoder.encodeString.contramap(_.toString)
   implicit val containerImageEncoder: Encoder[ContainerImage] = Encoder.encodeString.contramap(_.imageUrl)
@@ -114,13 +113,12 @@ object JsonCodec {
     "timestamp"
   )(x => RuntimeError.unapply(x).get)
   implicit val diskStatusEncoder: Encoder[DiskStatus] = Encoder.encodeString.contramap(_.toString)
-  implicit val diskAuditInfoEncoder: Encoder[DiskAuditInfo] = Encoder.forProduct4(
-    "creator",
-    "createdDate",
-    "destroyedDate",
-    "dateAccessed"
-  )(x => DiskAuditInfo.unapply(x).get)
   implicit val diskTypeEncoder: Encoder[DiskType] = Encoder.encodeString.contramap(_.entryName)
+  implicit val samResourceTypeEncoder: Encoder[SamResourceType] = Encoder.encodeString.contramap(_.asString)
+  implicit val samResourceEncoder: Encoder[SamResource] = Encoder.forProduct2(
+    "resourceType",
+    "resourceId"
+  )(x => (x.resourceType, x.resourceId))
 
   // Decoders
   implicit val operationNameDecoder: Decoder[OperationName] = Decoder.decodeString.map(OperationName)
@@ -132,9 +130,6 @@ object JsonCodec {
     Decoder.decodeString.emap(s => CloudService.withNameInsensitiveOption(s).toRight(s"Unsupported cloud service ${s}"))
   implicit val runtimeNameDecoder: Decoder[RuntimeName] = Decoder.decodeString.map(RuntimeName)
   implicit val runtimeStatusDecoder: Decoder[RuntimeStatus] = Decoder.decodeString.map(s => RuntimeStatus.withName(s))
-  implicit val runtimeInternalIdDecoder: Decoder[RuntimeInternalId] = Decoder.decodeString.map(RuntimeInternalId)
-  implicit val persistentDiskInternalIdDecoder: Decoder[PersistentDiskInternalId] =
-    Decoder.decodeString.map(PersistentDiskInternalId)
   implicit val machineTypeDecoder: Decoder[MachineTypeName] = Decoder.decodeString.emap(s =>
     if (s.isEmpty) Left("machine type cannot be an empty string") else Right(MachineTypeName(s))
   )
@@ -157,12 +152,11 @@ object JsonCodec {
     "imageUrl",
     "timestamp"
   )(RuntimeImage.apply)
-  implicit val auditInfoDecoder: Decoder[AuditInfo] = Decoder.forProduct5(
+  implicit val auditInfoDecoder: Decoder[AuditInfo] = Decoder.forProduct4(
     "creator",
     "createdDate",
     "destroyedDate",
-    "dateAccessed",
-    "kernelFoundBusyDate"
+    "dateAccessed"
   )(AuditInfo.apply)
   implicit val rtDataprocConfigDecoder: Decoder[RuntimeConfig.DataprocConfig] = Decoder.instance { c =>
     for {
@@ -223,8 +217,20 @@ object JsonCodec {
     Decoder.forProduct4("googleId", "operationName", "stagingBucket", "hostIp")(AsyncRuntimeFields.apply)
   implicit val diskStatusDecoder: Decoder[DiskStatus] =
     Decoder.decodeString.emap(x => DiskStatus.withNameOption(x).toRight(s"Invalid disk status: $x"))
-  implicit val diskAuditInfoDecoder: Decoder[DiskAuditInfo] =
-    Decoder.forProduct4("creator", "createdDate", "destroyedDate", "dateAccesed")(DiskAuditInfo.apply)
   implicit val diskTypeDecoder: Decoder[DiskType] =
     Decoder.decodeString.emap(x => DiskType.withNameOption(x).toRight(s"Invalid disk type: $x"))
+  implicit val samResourceTypeDecoder: Decoder[SamResourceType] =
+    Decoder.decodeString.emap(x => SamResourceType.stringToSamResourceType.get(x).toRight(s"Invalid Sam resource type: $x"))
+  implicit val samResourceDecoder = Decoder.instance { x =>
+    for {
+      resourceType <- x.downField("resourceType").as[SamResourceType]
+      resourceId <- x.downField("resourceId").as[String]
+    } yield {
+      resourceType match {
+        case SamResourceType.Runtime => SamResource.Runtime(resourceId)
+        case SamResourceType.PersistentDisk => SamResource.PersistentDisk(resourceId)
+        case SamResourceType.Project => SamResource.Project(resourceId)
+      }
+    }
+  }
 }
