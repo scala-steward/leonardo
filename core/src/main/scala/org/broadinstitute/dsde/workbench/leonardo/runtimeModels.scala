@@ -18,8 +18,8 @@ import scala.collection.immutable
  * This file contains models for Leonardo runtimes.
  */
 /** The runtime itself */
-final case class Runtime(id: Long,
-                         internalId: RuntimeInternalId,
+final case class Runtime(id: RuntimeId,
+                         internalId: RuntimeSamResourceId,
                          runtimeName: RuntimeName,
                          googleProject: GoogleProject,
                          serviceAccount: WorkbenchEmail,
@@ -43,8 +43,8 @@ final case class Runtime(id: Long,
                          welderEnabled: Boolean,
                          customEnvironmentVariables: Map[String, String],
                          runtimeConfigId: RuntimeConfigId,
-                         patchInProgress: Boolean) {
-  def projectNameString: String = s"${googleProject.value}/${runtimeName.asString}"
+                         patchInProgress: Boolean)
+    extends LeoResource(id, internalId, runtimeName, googleProject, auditInfo, labels, errors) {
   def nonPreemptibleInstances: Set[DataprocInstance] = dataprocInstances.filterNot(_.dataprocRole == SecondaryWorker)
 }
 
@@ -376,9 +376,11 @@ final case class RunningRuntime(googleProject: GoogleProject,
                                 runtimeName: RuntimeName,
                                 containers: List[RuntimeContainerServiceType])
 
-final case class RuntimeInternalId(asString: String) extends AnyVal
-final case class RuntimeName(asString: String) extends AnyVal
+final case class RuntimeId(asLong: Long) extends LeoId(asLong)
+final case class RuntimeSamResourceId(asString: String) extends SamResourceId(asString)
+final case class RuntimeName(asString: String) extends ResourceName(asString)
 final case class RuntimeError(errorMessage: String, errorCode: Int, timestamp: Instant)
+    extends ResourceError(errorMessage, errorCode, timestamp)
 final case class RuntimeErrorDetails(code: Int, message: Option[String])
 final case class RuntimeResource(asString: String) extends AnyVal
 final case class RuntimeProjectAndName(googleProject: GoogleProject, runtimeName: RuntimeName) {

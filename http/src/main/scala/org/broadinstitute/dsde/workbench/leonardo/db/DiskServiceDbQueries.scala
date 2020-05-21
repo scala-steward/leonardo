@@ -2,7 +2,6 @@ package org.broadinstitute.dsde.workbench.leonardo
 package db
 
 import cats.implicits._
-import org.broadinstitute.dsde.workbench.google2.DiskName
 import org.broadinstitute.dsde.workbench.leonardo.db.LeoProfile.api._
 import org.broadinstitute.dsde.workbench.leonardo.db.LeoProfile.mappedColumnImplicits._
 import org.broadinstitute.dsde.workbench.leonardo.http.api.GetPersistentDiskResponse

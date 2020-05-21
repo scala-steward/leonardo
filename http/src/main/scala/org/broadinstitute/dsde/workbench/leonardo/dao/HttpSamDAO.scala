@@ -105,7 +105,7 @@ class HttpSamDAO[F[_]: Effect](httpClient: Client[F], config: HttpSamDaoConfig, 
    * @param runtimeName   The user-provided name of the Dataproc cluster
    * @return A Future that will complete when the auth provider has finished doing its business.
    */
-  def createClusterResource(internalId: RuntimeInternalId,
+  def createClusterResource(internalId: RuntimeSamResourceId,
                             creatorEmail: WorkbenchEmail,
                             googleProject: GoogleProject,
                             runtimeName: RuntimeName)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit] =
@@ -114,7 +114,9 @@ class HttpSamDAO[F[_]: Effect](httpClient: Client[F], config: HttpSamDaoConfig, 
       token <- getCachedPetAccessToken(creatorEmail, googleProject).flatMap(
         _.fold(
           Effect[F].raiseError[String](
-            AuthProviderException(traceId, s"No pet SA found for ${creatorEmail} in ${googleProject}", StatusCodes.Unauthorized)
+            AuthProviderException(traceId,
+                                  s"No pet SA found for ${creatorEmail} in ${googleProject}",
+                                  StatusCodes.Unauthorized)
           )
         )(s => Effect[F].pure(s))
       )
@@ -149,7 +151,7 @@ class HttpSamDAO[F[_]: Effect](httpClient: Client[F], config: HttpSamDaoConfig, 
    * @param runtimeName      The user-provided name of the Dataproc cluster
    * @return A Future that will complete when the auth provider has finished doing its business.
    */
-  def deleteClusterResource(internalId: RuntimeInternalId,
+  def deleteClusterResource(internalId: RuntimeSamResourceId,
                             userEmail: WorkbenchEmail,
                             creatorEmail: WorkbenchEmail,
                             googleProject: GoogleProject,
@@ -159,7 +161,9 @@ class HttpSamDAO[F[_]: Effect](httpClient: Client[F], config: HttpSamDaoConfig, 
       token <- getCachedPetAccessToken(creatorEmail, googleProject).flatMap(
         _.fold(
           Effect[F].raiseError[String](
-            AuthProviderException(traceId, s"No pet SA found for ${creatorEmail} in ${googleProject}", StatusCodes.Unauthorized)
+            AuthProviderException(traceId,
+                                  s"No pet SA found for ${creatorEmail} in ${googleProject}",
+                                  StatusCodes.Unauthorized)
           )
         )(s => Effect[F].pure(s))
       )
@@ -201,7 +205,9 @@ class HttpSamDAO[F[_]: Effect](httpClient: Client[F], config: HttpSamDaoConfig, 
       token <- getCachedPetAccessToken(creatorEmail, googleProject).flatMap(
         _.fold(
           Effect[F].raiseError[String](
-            AuthProviderException(traceId, s"No pet SA found for ${creatorEmail} in ${googleProject}", StatusCodes.Unauthorized)
+            AuthProviderException(traceId,
+                                  s"No pet SA found for ${creatorEmail} in ${googleProject}",
+                                  StatusCodes.Unauthorized)
           )
         )(s => Effect[F].pure(s))
       )
@@ -244,7 +250,9 @@ class HttpSamDAO[F[_]: Effect](httpClient: Client[F], config: HttpSamDaoConfig, 
       token <- getCachedPetAccessToken(creatorEmail, googleProject).flatMap(
         _.fold(
           Effect[F].raiseError[String](
-            AuthProviderException(traceId, s"No pet SA found for ${creatorEmail} in ${googleProject}", StatusCodes.Unauthorized)
+            AuthProviderException(traceId,
+                                  s"No pet SA found for ${creatorEmail} in ${googleProject}",
+                                  StatusCodes.Unauthorized)
           )
         )(s => Effect[F].pure(s))
       )
@@ -349,7 +357,7 @@ object HttpSamDAO {
   implicit val samClusterPolicyDecoder: Decoder[SamNotebookClusterPolicy] = Decoder.instance { c =>
     for {
       policyName <- c.downField("accessPolicyName").as[AccessPolicyName]
-      runtimeInternalId <- c.downField("resourceId").as[RuntimeInternalId]
+      runtimeInternalId <- c.downField("resourceId").as[RuntimeSamResourceId]
     } yield SamNotebookClusterPolicy(policyName, runtimeInternalId)
   }
   implicit val samProjectPolicyDecoder: Decoder[SamProjectPolicy] = Decoder.instance { c =>
@@ -401,7 +409,7 @@ object AccessPolicyName {
     sealerate.collect[AccessPolicyName].map(p => (p.toString, p)).toMap
 
 }
-final case class SamNotebookClusterPolicy(accessPolicyName: AccessPolicyName, internalId: RuntimeInternalId)
+final case class SamNotebookClusterPolicy(accessPolicyName: AccessPolicyName, internalId: RuntimeSamResourceId)
 final case class SamPersistentDiskPolicy(accessPolicyName: AccessPolicyName, internalId: DiskSamResourceId)
 final case class SamProjectPolicy(accessPolicyName: AccessPolicyName, googleProject: GoogleProject)
 final case class UserEmailAndProject(userEmail: WorkbenchEmail, googleProject: GoogleProject)

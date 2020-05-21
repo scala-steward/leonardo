@@ -106,7 +106,7 @@ object LeonardoServiceDbQueries {
           }
           ListRuntimeResponse(
             clusterRec.id,
-            RuntimeInternalId(clusterRec.internalId),
+            RuntimeSamResourceId(clusterRec.internalId),
             clusterRec.clusterName,
             clusterRec.googleProject,
             clusterRec.serviceAccountInfo,

@@ -21,12 +21,12 @@ trait SamDAO[F[_]] {
     ev: ApplicativeAsk[F, TraceId]
   ): F[List[A]]
 
-  def createClusterResource(internalId: RuntimeInternalId,
+  def createClusterResource(internalId: RuntimeSamResourceId,
                             creatorEmail: WorkbenchEmail,
                             googleProject: GoogleProject,
                             runtimeName: RuntimeName)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit]
 
-  def deleteClusterResource(internalId: RuntimeInternalId,
+  def deleteClusterResource(internalId: RuntimeSamResourceId,
                             userEmail: WorkbenchEmail,
                             creatorEmail: WorkbenchEmail,
                             googleProject: GoogleProject,

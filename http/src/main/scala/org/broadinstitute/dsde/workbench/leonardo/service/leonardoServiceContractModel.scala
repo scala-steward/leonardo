@@ -92,7 +92,7 @@ final case class CreateRuntimeRequest(labels: LabelMap = Map.empty,
 
 object CreateRuntimeRequest {
   def toRuntime(request: CreateRuntimeRequest,
-                internalId: RuntimeInternalId,
+                internalId: RuntimeSamResourceId,
                 userEmail: WorkbenchEmail,
                 runtimeName: RuntimeName,
                 googleProject: GoogleProject,
@@ -135,7 +135,7 @@ object CreateRuntimeRequest {
 // Currently, CreateRuntimeResponse has exactly the same fields as GetRuntimeResponse, but going forward, when we can,
 // we should deprecate and remove some of fields for createRuntime request
 final case class CreateRuntimeResponse(id: Long,
-                                       internalId: RuntimeInternalId,
+                                       internalId: RuntimeSamResourceId,
                                        clusterName: RuntimeName,
                                        googleProject: GoogleProject,
                                        serviceAccountInfo: WorkbenchEmail,
@@ -193,7 +193,7 @@ object CreateRuntimeResponse {
 }
 
 final case class ListRuntimeResponse(id: Long,
-                                     internalId: RuntimeInternalId,
+                                     internalId: RuntimeSamResourceId,
                                      clusterName: RuntimeName,
                                      googleProject: GoogleProject,
                                      serviceAccountInfo: WorkbenchEmail,
@@ -238,7 +238,7 @@ object ListRuntimeResponse {
 }
 
 final case class GetRuntimeResponse(id: Long,
-                                    internalId: RuntimeInternalId,
+                                    internalId: RuntimeSamResourceId,
                                     clusterName: RuntimeName,
                                     googleProject: GoogleProject,
                                     serviceAccountInfo: WorkbenchEmail,
@@ -296,7 +296,7 @@ object GetRuntimeResponse {
 // Currently, UpdateRuntimeResponse has exactly the same fields as GetRuntimeResponse, but going forward, when we can,
 // we should deprecate and remove some of fields for updateRuntime request
 final case class UpdateRuntimeResponse(id: Long,
-                                       internalId: RuntimeInternalId,
+                                       internalId: RuntimeSamResourceId,
                                        clusterName: RuntimeName,
                                        googleProject: GoogleProject,
                                        serviceAccountInfo: WorkbenchEmail,

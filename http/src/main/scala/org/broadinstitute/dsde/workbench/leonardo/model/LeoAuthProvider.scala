@@ -59,7 +59,7 @@ abstract class LeoAuthProvider[F[_]] {
    * @param runtimeName   The user-provided name of the Dataproc cluster
    * @return If the userEmail has permission on this individual notebook cluster to perform this action
    */
-  def hasNotebookClusterPermission(internalId: RuntimeInternalId,
+  def hasNotebookClusterPermission(internalId: RuntimeSamResourceId,
                                    userInfo: UserInfo,
                                    action: NotebookClusterAction,
                                    googleProject: GoogleProject,
@@ -87,9 +87,9 @@ abstract class LeoAuthProvider[F[_]] {
    * @param clusters All non-deleted clusters from the database
    * @return         Filtered list of clusters that the user is allowed to see
    */
-  def filterUserVisibleClusters(userInfo: UserInfo, clusters: List[(GoogleProject, RuntimeInternalId)])(
+  def filterUserVisibleClusters(userInfo: UserInfo, clusters: List[(GoogleProject, RuntimeSamResourceId)])(
     implicit ev: ApplicativeAsk[F, TraceId]
-  ): F[List[(GoogleProject, RuntimeInternalId)]]
+  ): F[List[(GoogleProject, RuntimeSamResourceId)]]
 
   /**
    * Leo calls this method when it receives a "list persistent disks" API call, passing in all non-deleted disks from the database.
@@ -117,7 +117,7 @@ abstract class LeoAuthProvider[F[_]] {
    * @param runtimeName   The user-provided name of the Dataproc cluster
    * @return A Future that will complete when the auth provider has finished doing its business.
    */
-  def notifyClusterCreated(internalId: RuntimeInternalId,
+  def notifyClusterCreated(internalId: RuntimeSamResourceId,
                            creatorEmail: WorkbenchEmail,
                            googleProject: GoogleProject,
                            runtimeName: RuntimeName)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit]
@@ -134,7 +134,7 @@ abstract class LeoAuthProvider[F[_]] {
    * @param runtimeName   The user-provided name of the Dataproc cluster
    * @return A Future that will complete when the auth provider has finished doing its business.
    */
-  def notifyClusterDeleted(internalId: RuntimeInternalId,
+  def notifyClusterDeleted(internalId: RuntimeSamResourceId,
                            userEmail: WorkbenchEmail,
                            creatorEmail: WorkbenchEmail,
                            googleProject: GoogleProject,

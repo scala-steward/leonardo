@@ -105,8 +105,8 @@ class ProxyService(
     .expireAfterWrite(proxyConfig.internalIdCacheExpiryTime.toSeconds, TimeUnit.SECONDS)
     .maximumSize(proxyConfig.internalIdCacheMaxSize)
     .build(
-      new CacheLoader[(GoogleProject, RuntimeName), Option[RuntimeInternalId]] {
-        def load(key: (GoogleProject, RuntimeName)): Option[RuntimeInternalId] = {
+      new CacheLoader[(GoogleProject, RuntimeName), Option[RuntimeSamResourceId]] {
+        def load(key: (GoogleProject, RuntimeName)): Option[RuntimeSamResourceId] = {
           val (googleProject, clusterName) = key
           clusterQuery
             .getActiveClusterInternalIdByName(googleProject, clusterName)
@@ -118,7 +118,7 @@ class ProxyService(
 
   def getCachedClusterInternalId(googleProject: GoogleProject, clusterName: RuntimeName)(
     implicit ev: ApplicativeAsk[IO, TraceId]
-  ): IO[RuntimeInternalId] =
+  ): IO[RuntimeSamResourceId] =
     blocker.blockOn(IO(clusterInternalIdCache.get((googleProject, clusterName)))).flatMap {
       case Some(clusterInternalId) => IO.pure(clusterInternalId)
       case None =>
@@ -126,7 +126,7 @@ class ProxyService(
           logger.error(
             s"${ev.ask.unsafeRunSync()} | Unable to look up an internal ID for cluster ${googleProject.value} / ${clusterName.asString}"
           )
-        ) >> IO.raiseError[RuntimeInternalId](RuntimeNotFoundException(googleProject, clusterName))
+        ) >> IO.raiseError[RuntimeSamResourceId](RuntimeNotFoundException(googleProject, clusterName))
     }
 
   /*

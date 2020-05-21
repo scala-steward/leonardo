@@ -10,7 +10,7 @@ import cats.effect.Async
 import cats.implicits._
 import cats.mtl.ApplicativeAsk
 import io.chrisdavenport.log4cats.StructuredLogger
-import org.broadinstitute.dsde.workbench.google2.{DiskName, GoogleStorageService, ZoneName}
+import org.broadinstitute.dsde.workbench.google2.{GoogleStorageService, ZoneName}
 import org.broadinstitute.dsde.workbench.leonardo.config.PersistentDiskConfig
 import org.broadinstitute.dsde.workbench.leonardo.dao.DockerDAO
 import org.broadinstitute.dsde.workbench.leonardo.db._

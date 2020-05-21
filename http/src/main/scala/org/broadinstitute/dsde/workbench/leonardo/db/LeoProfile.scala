@@ -5,7 +5,7 @@ import java.time.Instant
 
 import io.circe.Printer
 import io.circe.syntax._
-import org.broadinstitute.dsde.workbench.google2.{DiskName, ZoneName}
+import org.broadinstitute.dsde.workbench.google2.ZoneName
 import org.broadinstitute.dsde.workbench.google2.GKEModels.{KubernetesClusterName, NodepoolName}
 import org.broadinstitute.dsde.workbench.google2.KubernetesModels.{KubernetesApiServerIp}
 import org.broadinstitute.dsde.workbench.google2.KubernetesSerializableName.KubernetesNamespaceName
@@ -86,13 +86,13 @@ private[leonardo] object LeoProfile extends MySQLProfile {
     implicit val googleIdMappedColumnType: BaseColumnType[GoogleId] =
       MappedColumnType.base[GoogleId, String](_.value, GoogleId.apply)
     implicit val diskIdMappedColumnType: BaseColumnType[DiskId] =
-      MappedColumnType.base[DiskId, Long](_.value, DiskId.apply)
+      MappedColumnType.base[DiskId, Long](_.asLong, DiskId.apply)
     implicit val diskSizeMappedColumnType: BaseColumnType[DiskSize] =
       MappedColumnType.base[DiskSize, Int](_.gb, DiskSize.apply)
     implicit val zoneNameMappedColumnType: BaseColumnType[ZoneName] =
       MappedColumnType.base[ZoneName, String](_.value, ZoneName.apply)
     implicit val diskNameMappedColumnType: BaseColumnType[DiskName] =
-      MappedColumnType.base[DiskName, String](_.value, DiskName.apply)
+      MappedColumnType.base[DiskName, String](_.asString, DiskName.apply)
     implicit val diskSamResourceIdMappedColumnType: BaseColumnType[DiskSamResourceId] =
       MappedColumnType.base[DiskSamResourceId, String](_.asString, DiskSamResourceId.apply)
     implicit val diskStatusMappedColumnType: BaseColumnType[DiskStatus] =

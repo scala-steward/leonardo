@@ -88,7 +88,7 @@ class IamProxyAuthProvider(config: Config, saProvider: ServiceAccountProvider[Fu
     checkUserAccess(userInfo, googleProject)
 
   override def hasNotebookClusterPermission(
-    internalId: RuntimeInternalId,
+    internalId: RuntimeSamResourceId,
     userInfo: UserInfo,
     action: NotebookClusterAction,
     googleProject: GoogleProject,
@@ -104,9 +104,9 @@ class IamProxyAuthProvider(config: Config, saProvider: ServiceAccountProvider[Fu
   )(implicit ev: ApplicativeAsk[Future, TraceId]): Future[Boolean] =
     checkUserAccessFromIam(userInfo.userEmail, userInfo.accessToken, googleProject)
 
-  override def filterUserVisibleClusters(userInfo: UserInfo, clusters: List[(GoogleProject, RuntimeInternalId)])(
+  override def filterUserVisibleClusters(userInfo: UserInfo, clusters: List[(GoogleProject, RuntimeSamResourceId)])(
     implicit ev: ApplicativeAsk[Future, TraceId]
-  ): Future[List[(GoogleProject, RuntimeInternalId)]] = {
+  ): Future[List[(GoogleProject, RuntimeSamResourceId)]] = {
     // Check each project for user-access exactly once, then filter by project.
     val projects = clusters.map(lv => lv._1).toSet
     val projectAccess = projects.map(p => p.value -> checkUserAccess(userInfo, p)).toMap
@@ -133,14 +133,14 @@ class IamProxyAuthProvider(config: Config, saProvider: ServiceAccountProvider[Fu
   }
 
   override def notifyClusterCreated(
-    internalId: RuntimeInternalId,
+    internalId: RuntimeSamResourceId,
     creatorEmail: WorkbenchEmail,
     googleProject: GoogleProject,
     runtimeName: RuntimeName
   )(implicit ev: ApplicativeAsk[Future, TraceId]): Future[Unit] = Future.unit
 
   override def notifyClusterDeleted(
-    internalId: RuntimeInternalId,
+    internalId: RuntimeSamResourceId,
     userEmail: WorkbenchEmail,
     creatorEmail: WorkbenchEmail,
     googleProject: GoogleProject,

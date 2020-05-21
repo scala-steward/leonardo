@@ -281,10 +281,10 @@ object clusterQuery extends TableQuery(new ClusterTable(_)) {
       _ <- extensionQuery.saveAllForCluster(clusterId, cluster.userJupyterExtensionConfig)
       _ <- clusterImageQuery.saveAllForCluster(clusterId, cluster.runtimeImages.toSeq)
       _ <- scopeQuery.saveAllForCluster(clusterId, cluster.scopes)
-    } yield cluster.copy(id = clusterId)
+    } yield cluster.copy(id = RuntimeId(clusterId))
 
   def mergeInstances(cluster: Runtime)(implicit ec: ExecutionContext): DBIO[Runtime] =
-    clusterQuery.filter(_.id === cluster.id).result.headOption.flatMap {
+    clusterQuery.filter(_.id === cluster.id.asLong).result.headOption.flatMap {
       case Some(rec) => instanceQuery.mergeForCluster(rec.id, cluster.dataprocInstances.toSeq).map(_ => cluster)
       case None      => DBIO.successful(cluster)
     }
@@ -382,13 +382,13 @@ object clusterQuery extends TableQuery(new ClusterTable(_)) {
 
   def getActiveClusterInternalIdByName(project: GoogleProject, name: RuntimeName)(
     implicit ec: ExecutionContext
-  ): DBIO[Option[RuntimeInternalId]] =
+  ): DBIO[Option[RuntimeSamResourceId]] =
     clusterQuery
       .filter(_.googleProject === project)
       .filter(_.clusterName === name)
       .filter(_.destroyedDate === dummyDate)
       .result
-      .map(recs => recs.headOption.map(clusterRec => RuntimeInternalId(clusterRec.internalId)))
+      .map(recs => recs.headOption.map(clusterRec => RuntimeSamResourceId(clusterRec.internalId)))
 
   private[leonardo] def getIdByUniqueKey(cluster: Runtime)(implicit ec: ExecutionContext): DBIO[Option[Long]] =
     getIdByUniqueKey(cluster.googleProject, cluster.runtimeName, cluster.auditInfo.destroyedDate)
@@ -398,7 +398,7 @@ object clusterQuery extends TableQuery(new ClusterTable(_)) {
     clusterName: RuntimeName,
     destroyedDateOpt: Option[Instant]
   )(implicit ec: ExecutionContext): DBIO[Option[Long]] =
-    getClusterByUniqueKey(googleProject, clusterName, destroyedDateOpt).map(_.map(_.id))
+    getClusterByUniqueKey(googleProject, clusterName, destroyedDateOpt).map(_.map(_.id.asLong))
 
   // Convenience method for tests, in several of which we define a cluster and later on need
   // to retrieve its updated status, etc. but don't know its id to look up
@@ -490,7 +490,7 @@ object clusterQuery extends TableQuery(new ClusterTable(_)) {
       )
 
   def clearAsyncClusterCreationFields(cluster: Runtime, dateAccessed: Instant): DBIO[Int] =
-    findByIdQuery(cluster.id)
+    findByIdQuery(cluster.id.asLong)
       .map(c => (c.initBucket, c.googleId, c.operationName, c.stagingBucket, c.dateAccessed))
       .update((None, None, None, None, dateAccessed))
 
@@ -511,7 +511,7 @@ object clusterQuery extends TableQuery(new ClusterTable(_)) {
     implicit ec: ExecutionContext
   ): DBIO[Int] =
     clusterQuery.getActiveClusterByNameMinimal(googleProject, clusterName) flatMap {
-      case Some(c) => clusterQuery.updateDateAccessed(c.id, dateAccessed)
+      case Some(c) => clusterQuery.updateDateAccessed(c.id.asLong, dateAccessed)
       case None    => DBIO.successful(0)
     }
 
@@ -527,7 +527,7 @@ object clusterQuery extends TableQuery(new ClusterTable(_)) {
                                                clusterName: RuntimeName,
                                                dateAccessed: Instant)(implicit ec: ExecutionContext): DBIO[Int] =
     clusterQuery.getActiveClusterByNameMinimal(googleProject, clusterName) flatMap {
-      case Some(c) => clusterQuery.clearKernelFoundBusyDate(c.id, dateAccessed)
+      case Some(c) => clusterQuery.clearKernelFoundBusyDate(c.id.asLong, dateAccessed)
       case None    => DBIO.successful(0)
     }
 
@@ -706,8 +706,8 @@ object clusterQuery extends TableQuery(new ClusterTable(_)) {
     }
 
     Runtime(
-      clusterRecord.id,
-      RuntimeInternalId(clusterRecord.internalId),
+      RuntimeId(clusterRecord.id),
+      RuntimeSamResourceId(clusterRecord.internalId),
       name,
       project,
       clusterRecord.serviceAccountInfo,

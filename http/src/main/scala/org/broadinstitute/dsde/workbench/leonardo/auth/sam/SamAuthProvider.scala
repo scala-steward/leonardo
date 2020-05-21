@@ -118,7 +118,7 @@ class SamAuthProvider[F[_]: Effect: Logger](samDao: SamDAO[F],
   }
 
   override def hasNotebookClusterPermission(
-    internalId: RuntimeInternalId,
+    internalId: RuntimeSamResourceId,
     userInfo: UserInfo,
     action: NotebookClusterAction,
     googleProject: GoogleProject,
@@ -152,7 +152,7 @@ class SamAuthProvider[F[_]: Effect: Logger](samDao: SamDAO[F],
   }
 
   private def checkNotebookClusterPermissionWithProjectFallback(
-    internalId: RuntimeInternalId,
+    internalId: RuntimeSamResourceId,
     authorization: Authorization,
     action: NotebookClusterAction,
     googleProject: GoogleProject,
@@ -213,7 +213,7 @@ class SamAuthProvider[F[_]: Effect: Logger](samDao: SamDAO[F],
     } yield res
 
   private def hasNotebookClusterPermissionInternal(
-    clusterInternalId: RuntimeInternalId,
+    clusterInternalId: RuntimeSamResourceId,
     action: LeoAuthAction,
     authHeader: Authorization
   )(implicit ev: ApplicativeAsk[F, TraceId]): F[Boolean] =
@@ -238,9 +238,9 @@ class SamAuthProvider[F[_]: Effect: Logger](samDao: SamDAO[F],
                                           authHeader)
     } yield res
 
-  override def filterUserVisibleClusters(userInfo: UserInfo, clusters: List[(GoogleProject, RuntimeInternalId)])(
+  override def filterUserVisibleClusters(userInfo: UserInfo, clusters: List[(GoogleProject, RuntimeSamResourceId)])(
     implicit ev: ApplicativeAsk[F, TraceId]
-  ): F[List[(GoogleProject, RuntimeInternalId)]] = {
+  ): F[List[(GoogleProject, RuntimeSamResourceId)]] = {
     val authHeader = Authorization(Credentials.Token(AuthScheme.Bearer, userInfo.accessToken.token))
     for {
       projectPolicies <- samDao.getResourcePolicies[SamProjectPolicy](authHeader, ResourceTypeName.BillingProject)
@@ -274,13 +274,13 @@ class SamAuthProvider[F[_]: Effect: Logger](samDao: SamDAO[F],
     }
   }
 
-  override def notifyClusterCreated(internalId: RuntimeInternalId,
+  override def notifyClusterCreated(internalId: RuntimeSamResourceId,
                                     creatorEmail: WorkbenchEmail,
                                     googleProject: GoogleProject,
                                     clusterName: RuntimeName)(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit] =
     samDao.createClusterResource(internalId, creatorEmail, googleProject, clusterName)
 
-  override def notifyClusterDeleted(internalId: RuntimeInternalId,
+  override def notifyClusterDeleted(internalId: RuntimeSamResourceId,
                                     userEmail: WorkbenchEmail,
                                     creatorEmail: WorkbenchEmail,
                                     googleProject: GoogleProject,
@@ -305,7 +305,7 @@ class SamAuthProvider[F[_]: Effect: Logger](samDao: SamDAO[F],
 final case class SamAuthProviderConfig(notebookAuthCacheEnabled: Boolean,
                                        notebookAuthCacheMaxSize: Int = 1000,
                                        notebookAuthCacheExpiryTime: FiniteDuration = 15 minutes)
-private[sam] case class NotebookAuthCacheKey(internalId: RuntimeInternalId,
+private[sam] case class NotebookAuthCacheKey(internalId: RuntimeSamResourceId,
                                              authorization: Authorization,
                                              action: NotebookClusterAction,
                                              googleProject: GoogleProject,

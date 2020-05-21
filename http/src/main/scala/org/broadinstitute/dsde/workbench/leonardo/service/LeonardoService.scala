@@ -16,7 +16,7 @@ import cats.mtl.ApplicativeAsk
 import com.google.api.client.http.HttpResponseException
 import com.typesafe.scalalogging.LazyLogging
 import org.broadinstitute.dsde.workbench.google.GoogleStorageDAO
-import org.broadinstitute.dsde.workbench.google2.{DiskName, MachineTypeName}
+import org.broadinstitute.dsde.workbench.google2.MachineTypeName
 import org.broadinstitute.dsde.workbench.leonardo.RuntimeImageType.{Jupyter, Proxy, Welder}
 import org.broadinstitute.dsde.workbench.leonardo.RuntimeStatus.Stopped
 import org.broadinstitute.dsde.workbench.leonardo.config._
@@ -53,7 +53,7 @@ case class RuntimeNotFoundException(googleProject: GoogleProject, runtimeName: R
     extends LeoException(s"Runtime ${googleProject.value}/${runtimeName.asString} not found", StatusCodes.NotFound)
 
 case class DiskNotFoundException(googleProject: GoogleProject, diskName: DiskName)
-    extends LeoException(s"Persistent disk ${googleProject.value}/${diskName.value} not found", StatusCodes.NotFound)
+    extends LeoException(s"Persistent disk ${googleProject.value}/${diskName.asString} not found", StatusCodes.NotFound)
 
 case class RuntimeAlreadyExistsException(googleProject: GoogleProject, runtimeName: RuntimeName, status: RuntimeStatus)
     extends LeoException(
@@ -63,7 +63,7 @@ case class RuntimeAlreadyExistsException(googleProject: GoogleProject, runtimeNa
 
 case class PersistentDiskAlreadyExistsException(googleProject: GoogleProject, diskName: DiskName, status: DiskStatus)
     extends LeoException(
-      s"Persistent disk ${googleProject.value}/${diskName.value} already exists in ${status.toString} status",
+      s"Persistent disk ${googleProject.value}/${diskName.asString} already exists in ${status.toString} status",
       StatusCodes.Conflict
     )
 
@@ -81,7 +81,7 @@ case class RuntimeCannotBeDeletedException(googleProject: GoogleProject, runtime
 
 case class DiskCannotBeDeletedException(googleProject: GoogleProject, diskName: DiskName, status: DiskStatus)
     extends LeoException(
-      s"Persistent disk ${googleProject.value}/${diskName.value} cannot be deleted in ${status} status",
+      s"Persistent disk ${googleProject.value}/${diskName.asString} cannot be deleted in ${status} status",
       StatusCodes.Conflict
     )
 
@@ -198,7 +198,7 @@ class LeonardoService(
   // If the cluster really exists and you're OK with the user knowing that, set throw403 = true.
   protected def checkClusterPermission(userInfo: UserInfo,
                                        action: NotebookClusterAction,
-                                       clusterInternalId: RuntimeInternalId,
+                                       clusterInternalId: RuntimeSamResourceId,
                                        runtimeProjectAndName: RuntimeProjectAndName,
                                        throw403: Boolean = false)(implicit ev: ApplicativeAsk[IO, TraceId]): IO[Unit] =
     for {
@@ -263,7 +263,7 @@ class LeonardoService(
     // and if so, save the cluster creation request parameters in DB
     for {
       traceId <- ev.ask
-      internalId <- IO(RuntimeInternalId(UUID.randomUUID().toString))
+      internalId <- IO(RuntimeSamResourceId(UUID.randomUUID().toString))
       // Get a pet token from Sam. If we can't get a token, we won't do validation but won't fail cluster creation.
       petToken <- serviceAccountProvider.getAccessToken(userEmail, googleProject).recoverWith {
         case e =>

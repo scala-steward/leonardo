@@ -13,7 +13,7 @@ import cats.effect.{IO, Timer}
 import de.heikoseeberger.akkahttpcirce.ErrorAccumulatingCirceSupport._
 import cats.mtl.ApplicativeAsk
 import io.circe.{Decoder, Encoder}
-import org.broadinstitute.dsde.workbench.google2.{DiskName, ZoneName}
+import org.broadinstitute.dsde.workbench.google2.ZoneName
 import org.broadinstitute.dsde.workbench.leonardo.JsonCodec._
 import org.broadinstitute.dsde.workbench.leonardo.api.CookieSupport
 import org.broadinstitute.dsde.workbench.model.google.GoogleProject

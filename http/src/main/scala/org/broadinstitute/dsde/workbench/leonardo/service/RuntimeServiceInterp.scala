@@ -78,7 +78,7 @@ class RuntimeServiceInterp[F[_]: Parallel](config: RuntimeServiceConfig,
         case Some(c) => F.raiseError[Unit](RuntimeAlreadyExistsException(googleProject, runtimeName, c.status))
         case None =>
           for {
-            internalId <- F.delay(RuntimeInternalId(UUID.randomUUID().toString))
+            internalId <- F.delay(RuntimeSamResourceId(UUID.randomUUID().toString))
             petToken <- serviceAccountProvider.getAccessToken(userInfo.userEmail, googleProject).recoverWith {
               case e =>
                 log.warn(e)(
@@ -519,7 +519,7 @@ object RuntimeServiceInterp {
                                serviceAccountInfo: WorkbenchEmail,
                                googleProject: GoogleProject,
                                runtimeName: RuntimeName,
-                               clusterInternalId: RuntimeInternalId,
+                               clusterInternalId: RuntimeSamResourceId,
                                clusterImages: Set[RuntimeImage],
                                config: RuntimeServiceConfig,
                                req: CreateRuntime2Request,

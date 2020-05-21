@@ -26,7 +26,7 @@ class WhitelistAuthProvider(config: Config, saProvider: ServiceAccountProvider[I
     checkWhitelist(userInfo)
 
   override def hasNotebookClusterPermission(
-    internalId: RuntimeInternalId,
+    internalId: RuntimeSamResourceId,
     userInfo: UserInfo,
     action: NotebookClusterAction,
     googleProject: GoogleProject,
@@ -42,9 +42,9 @@ class WhitelistAuthProvider(config: Config, saProvider: ServiceAccountProvider[I
   )(implicit ev: ApplicativeAsk[IO, TraceId]): IO[Boolean] =
     checkWhitelist(userInfo)
 
-  override def filterUserVisibleClusters(userInfo: UserInfo, clusters: List[(GoogleProject, RuntimeInternalId)])(
+  override def filterUserVisibleClusters(userInfo: UserInfo, clusters: List[(GoogleProject, RuntimeSamResourceId)])(
     implicit ev: ApplicativeAsk[IO, TraceId]
-  ): IO[List[(GoogleProject, RuntimeInternalId)]] =
+  ): IO[List[(GoogleProject, RuntimeSamResourceId)]] =
     clusters.traverseFilter { a =>
       checkWhitelist(userInfo).map {
         case true  => Some(a)
@@ -62,12 +62,12 @@ class WhitelistAuthProvider(config: Config, saProvider: ServiceAccountProvider[I
       }
     }
 
-  def notifyClusterCreated(internalId: RuntimeInternalId,
+  def notifyClusterCreated(internalId: RuntimeSamResourceId,
                            creatorEmail: WorkbenchEmail,
                            googleProject: GoogleProject,
                            runtimeName: RuntimeName)(implicit ev: ApplicativeAsk[IO, TraceId]): IO[Unit] = IO.unit
 
-  def notifyClusterDeleted(internalId: RuntimeInternalId,
+  def notifyClusterDeleted(internalId: RuntimeSamResourceId,
                            userEmail: WorkbenchEmail,
                            creatorEmail: WorkbenchEmail,
                            googleProject: GoogleProject,
