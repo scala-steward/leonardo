@@ -136,6 +136,13 @@ class RuntimeCreationDiskSpec
                                                   diskName,
                                                   defaultCreateDiskRequest.copy(size = Some(diskSize)))
         runtime <- createRuntimeWithWait(googleProject, runtimeName, createRuntimeRequest)
+
+        // Disk should remain attached if runtime is stopped
+        _ <- IO(stopRuntime(googleProject, runtimeName, true))
+        stoppedRuntime <- getRuntime(googleProject, runtimeName)
+        _ <- IO(startRuntime(googleProject, runtimeName, true))
+
+        // Write data (test.txt) to PD mount point and then delete runtime
         clusterCopy = ClusterCopy.fromGetRuntimeResponseCopy(runtime)
         _ <- IO(withWebDriver { implicit driver =>
           withNewNotebook(clusterCopy, Python3) { notebookPage =>
@@ -161,6 +168,7 @@ class RuntimeCreationDiskSpec
       } yield {
         runtime.diskConfig.map(_.name) shouldBe Some(diskName)
         runtime.diskConfig.map(_.size) shouldBe Some(diskSize)
+        stoppedRuntime.diskConfig.map(_.name) shouldBe Some(diskName)
       }
     }
 
