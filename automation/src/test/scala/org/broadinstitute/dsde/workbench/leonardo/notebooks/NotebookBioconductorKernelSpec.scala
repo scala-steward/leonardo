@@ -251,6 +251,15 @@ class NotebookBioconductorKernelSpec extends RuntimeFixtureSpec with NotebookTes
       }
     }
 
+    "should install bioconductor image packages to appropriate directory" in { runtimeFixture =>
+      withWebDriver { implicit driver =>
+        withNewNotebook(runtimeFixture.runtime, RKernel) { notebookPage =>
+          notebookPage.executeCell("library('scran')")
+          notebookPage.executeCell("find.package('scran')").get should include("/home/jupyter-user/notebooks/packages")
+        }
+      }
+    }
+
     "should have Java available" in { runtimeFixture =>
       withWebDriver { implicit driver =>
         withNewNotebook(runtimeFixture.runtime, RKernel) { notebookPage =>
