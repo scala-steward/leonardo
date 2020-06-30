@@ -98,16 +98,16 @@ final class LeonardoSuite
       new ClusterStatusTransitionsSpec,
       new LabSpec,
 //      new NotebookClusterMonitoringSpec,
-//      new NotebookCustomizationSpec, //TODO: enabled this...This spec pass locally
-      new NotebookDataSyncingSpec,
+//      new NotebookCustomizationSpec,
+//      new NotebookDataSyncingSpec,
       new LeoPubsubSpec,
       new ClusterAutopauseSpec,
       new RuntimeAutopauseSpec,
       new RuntimePatchSpec,
       new RuntimeStatusTransitionsSpec,
-      new NotebookGCEClusterMonitoringSpec
+//      new NotebookGCEClusterMonitoringSpec,
 //      new NotebookGCECustomizationSpec,
-//      new NotebookGCEDataSyncingSpec
+      new NotebookGCEDataSyncingSpec
     )
     with TestSuite
     with GPAllocBeforeAndAfterAll
@@ -120,7 +120,7 @@ final class LeonardoTerraDockerSuite
       new NotebookGATKSpec,
       new NotebookHailSpec,
       new NotebookPyKernelSpec,
-//      new NotebookRKernelSpec,
+      new NotebookRKernelSpec,
       new RStudioSpec
     )
     with TestSuite
