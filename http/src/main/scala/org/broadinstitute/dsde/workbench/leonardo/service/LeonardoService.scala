@@ -44,12 +44,11 @@ import org.broadinstitute.dsde.workbench.util.Retry
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
-case class AuthorizationError(email: WorkbenchEmail)
-    extends LeoException(
-      s"${email.value} is unauthorized." +
-        "If you have proper permissions to use the workspace, make sure you are also added to the billing account",
-      StatusCodes.Forbidden
-    )
+
+case class AuthorizationError(email: Option[WorkbenchEmail] = None)
+    extends LeoException(s"${email.map(e => s"'${e.value}'").getOrElse("Your account")} is unauthorized." +
+      "If you have proper permissions to use the workspace, make sure you are also added to the billing account",
+                         StatusCodes.Forbidden)
 
 case class RuntimeNotFoundException(googleProject: GoogleProject, runtimeName: RuntimeName, msg: String)
     extends LeoException(s"Runtime ${googleProject.value}/${runtimeName.asString} not found. Details: ${msg}",
