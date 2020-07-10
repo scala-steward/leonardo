@@ -3,7 +3,7 @@ package org.broadinstitute.dsde.workbench.leonardo.notebooks
 import com.typesafe.scalalogging.LazyLogging
 import org.apache.commons.text.StringEscapeUtils
 import org.openqa.selenium.interactions.Actions
-import org.openqa.selenium.{By, WebDriver, WebElement}
+import org.openqa.selenium.{By, StaleElementReferenceException, WebDriver, WebElement}
 import org.scalatest.concurrent.Eventually
 import org.scalatest.concurrent.PatienceConfiguration.{Interval, Timeout}
 import org.scalatest.exceptions.TestFailedDueToTimeoutException
@@ -15,6 +15,7 @@ import scala.collection.JavaConverters._
 import org.broadinstitute.dsde.workbench.leonardo.KernelNotReadyException
 import org.broadinstitute.dsde.workbench.auth.AuthToken
 import org.broadinstitute.dsde.workbench.leonardo.notebooks.Notebook.NotebookMode
+import org.openqa.selenium.support.ui.WebDriverWait
 
 class NotebookPage(val url: String)(implicit override val authToken: AuthToken,
                                     implicit override val webDriver: WebDriver)
@@ -25,6 +26,26 @@ class NotebookPage(val url: String)(implicit override val authToken: AuthToken,
   override def open(implicit webDriver: WebDriver): NotebookPage =
     super.open.asInstanceOf[NotebookPage]
 
+  def withWaitForElement(timeOutInSeconds: Long)(f: => Element)(implicit webDriver: WebDriver): Element = {
+    val wait = new WebDriverWait(webDriver, timeOutInSeconds)
+    wait until new java.util.function.Function[WebDriver, Element] {
+      override def apply(d: WebDriver): Element = {
+        try {
+          f
+        } catch {
+          case _: StaleElementReferenceException => null
+        }
+      }
+    }
+  }
+
+   def enabled(query: Query,
+              timeOutInSeconds: Long = defaultTimeOutInSeconds)(implicit webDriver: WebDriver): Element =
+    withWaitForElement(timeOutInSeconds) {
+      find(query).filter { x =>
+        x.isEnabled &&  x.equals(webDriver.switchTo().activeElement())
+      }.orNull
+    }
   // selects all menus from the header bar
   lazy val menus: Query = cssSelector("[class='dropdown-toggle']")
 
@@ -132,6 +153,9 @@ class NotebookPage(val url: String)(implicit override val authToken: AuthToken,
   val lockCopyButton = "modal-copy-2"
   val noModeBannerId = "notification_not_saving"
 
+
+
+
   def getSelectorFrom(id: String): Query =
     cssSelector(s"[id='${id}']")
 
@@ -178,6 +202,8 @@ class NotebookPage(val url: String)(implicit override val authToken: AuthToken,
 
   lazy val cells: Query = cssSelector(".CodeMirror")
 
+
+
   def lastCell: WebElement =
     webDriver.findElements(cells.by).asScala.toList.last
 
@@ -202,10 +228,13 @@ class NotebookPage(val url: String)(implicit override val authToken: AuthToken,
                   timeout: FiniteDuration = 1 minute,
                   cellNumberOpt: Option[Int] = None): Option[String] = {
     dismissNotebookChanged()
+    logger.info(s"YOU ARE HERE IN EXECUTE CELL before AWAIT ENABLED CELLS")
     await enabled cells
     val cell = lastCell
     val cellNumber = cellNumberOpt.getOrElse(numCellsOnPage)
+    logger.info(s"CELL NUMBER "+cellNumber)
     click on cell
+    logger.info(s"we've clicked on cell")
     val jsEscapedCode = StringEscapeUtils.escapeEcmaScript(code)
     executeScript(s"""arguments[0].CodeMirror.setValue("$jsEscapedCode");""", cell)
     clickRunCell(timeout)
@@ -220,6 +249,8 @@ class NotebookPage(val url: String)(implicit override val authToken: AuthToken,
     await enabled cells
     val cell = lastCell
     val cellNumber = cellNumberOpt.getOrElse(numCellsOnPage)
+    val action = new Actions(webDriver)
+    action.moveToElement(cell)
     click on cell
     val jsEscapedCode = StringEscapeUtils.escapeEcmaScript(code)
     executeScript(s"""arguments[0].CodeMirror.setValue("$jsEscapedCode");""", cell)
@@ -287,7 +318,9 @@ class NotebookPage(val url: String)(implicit override val authToken: AuthToken,
   }
 
   def clickRunCell(timeout: FiniteDuration = 2.minutes, wait: Boolean = true): Unit = {
+    logger.info(s"YOU ARE HERE IN CLICK RUN CELL")
     click on runCellButton
+
     if (wait) awaitReadyKernel(timeout)
   }
 

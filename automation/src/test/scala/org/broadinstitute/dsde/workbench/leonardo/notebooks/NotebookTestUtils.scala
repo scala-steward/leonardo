@@ -12,7 +12,8 @@ import org.broadinstitute.dsde.workbench.google2.{GcsBlobName, GetMetadataRespon
 import org.broadinstitute.dsde.workbench.leonardo._
 import org.broadinstitute.dsde.workbench.model.google._
 import org.broadinstitute.dsde.workbench.service.Sam
-import org.openqa.selenium.WebDriver
+import org.openqa.selenium.{StaleElementReferenceException, WebDriver}
+import org.openqa.selenium.support.ui.WebDriverWait
 import org.scalatest.Suite
 
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -28,6 +29,7 @@ trait NotebookTestUtils extends LeonardoTestUtils {
     case _: KernelNotReadyException => true
     case _                          => false
   }
+
 
   def withNotebooksListPage[T](cluster: ClusterCopy)(testCode: NotebooksListPage => T)(implicit webDriver: WebDriver,
                                                                                        token: AuthToken): T = {

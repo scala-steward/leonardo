@@ -26,11 +26,11 @@ import scala.concurrent.duration._
 /**
  * This spec verifies notebook functionality specifically around the R-Bioconductor kernel.
  */
-@DoNotDiscover
+//@DoNotDiscover
 class NotebookBioconductorKernelSpec extends RuntimeFixtureSpec with NotebookTestUtils {
   override val toolDockerImage: Option[String] = Some(LeonardoConfig.Leonardo.bioconductorImageUrl)
   "NotebookBioconductorKernelSpec" - {
-    "should create a notebook with a working R kernel and install package rsbml, RCurl" ignore { runtimeFixture =>
+    /*"should create a notebook with a working R kernel and install package rsbml, RCurl" ignore { runtimeFixture =>
       withWebDriver { implicit driver =>
         withNewNotebook(runtimeFixture.runtime, RKernel) { notebookPage =>
 //          notebookPage.executeCell("""BiocManager::version() == "3.10"""")
@@ -96,7 +96,7 @@ class NotebookBioconductorKernelSpec extends RuntimeFixtureSpec with NotebookTes
           notebookPage.executeCell("library('Rgraphviz')")
         }
       }
-    }
+    }*/
 
     "should be able to install packages that depend on scikit-learn, hdf5, openbabel, gsl, magick++, database package" in {
       runtimeFixture =>
@@ -125,7 +125,7 @@ class NotebookBioconductorKernelSpec extends RuntimeFixtureSpec with NotebookTes
         }
     }
 
-    "should be able to install packages that depend on jags, protobuf, Cairo and gtk" in { runtimeFixture =>
+    /*"should be able to install packages that depend on jags, protobuf, Cairo and gtk" in { runtimeFixture =>
       withWebDriver { implicit driver =>
         withNewNotebook(runtimeFixture.runtime, RKernel) { notebookPage =>
           val installTimeout = 15 minutes
@@ -153,6 +153,6 @@ class NotebookBioconductorKernelSpec extends RuntimeFixtureSpec with NotebookTes
           javaOutput.get should not include ("not found")
         }
       }
-    }
+    }*/
   }
 }
