@@ -123,7 +123,7 @@ trait TestLeoRoutes {
     bucketHelper,
     new MockDockerDAO,
     QueueFactory.makePublisherQueue()
-  )(executor, system, loggerIO, cs, testTimer, testDbRef, runtimeInstances)
+  )(executor, system, loggerIO, cs, testTimer, testDbRef)
 
   def makeLeonardoService(publisherQueue: InspectableQueue[IO, LeoPubsubMessage] = QueueFactory.makePublisherQueue()) =
     new LeonardoService(
@@ -141,7 +141,7 @@ trait TestLeoRoutes {
       bucketHelper,
       new MockDockerDAO,
       publisherQueue
-    )(executor, system, loggerIO, cs, testTimer, testDbRef, runtimeInstances)
+    )(executor, system, loggerIO, cs, testTimer, testDbRef)
 
   val runtimeDnsCache = new RuntimeDnsCache[IO](proxyConfig, testDbRef, Config.runtimeDnsCacheConfig, blocker)
   val kubernetesDnsCache = new KubernetesDnsCache[IO](proxyConfig, testDbRef, Config.kubernetesDnsCacheConfig, blocker)

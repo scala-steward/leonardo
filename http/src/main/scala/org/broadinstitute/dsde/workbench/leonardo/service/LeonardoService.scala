@@ -2,7 +2,6 @@ package org.broadinstitute.dsde.workbench.leonardo
 package http
 package service
 
-import java.time.Instant
 import java.util.UUID
 
 import _root_.io.chrisdavenport.log4cats.Logger
@@ -16,24 +15,16 @@ import cats.mtl.ApplicativeAsk
 import com.google.api.client.http.HttpResponseException
 import com.typesafe.scalalogging.LazyLogging
 import org.broadinstitute.dsde.workbench.google.GoogleStorageDAO
-import org.broadinstitute.dsde.workbench.google2.MachineTypeName
 import org.broadinstitute.dsde.workbench.leonardo.JsonCodec._
 import org.broadinstitute.dsde.workbench.leonardo.RuntimeImageType.{Jupyter, Proxy, Welder}
-import org.broadinstitute.dsde.workbench.leonardo.RuntimeStatus.Stopped
 import org.broadinstitute.dsde.workbench.leonardo.config._
 import org.broadinstitute.dsde.workbench.leonardo.dao.google._
 import org.broadinstitute.dsde.workbench.leonardo.dao.{DockerDAO, WelderDAO}
 import org.broadinstitute.dsde.workbench.leonardo.db._
 import org.broadinstitute.dsde.workbench.leonardo.http.service.LeonardoService._
-import org.broadinstitute.dsde.workbench.leonardo.http.service.UpdateTransition._
 import org.broadinstitute.dsde.workbench.leonardo.model._
 import org.broadinstitute.dsde.workbench.leonardo.monitor.{LeoPubsubMessage, RuntimeConfigInCreateRuntimeMessage}
-import org.broadinstitute.dsde.workbench.leonardo.monitor.LeoPubsubMessage.{
-  CreateRuntimeMessage,
-  DeleteRuntimeMessage,
-  StartRuntimeMessage,
-  StopRuntimeMessage
-}
+import org.broadinstitute.dsde.workbench.leonardo.monitor.LeoPubsubMessage.{CreateRuntimeMessage}
 import org.broadinstitute.dsde.workbench.leonardo.util._
 import org.broadinstitute.dsde.workbench.model.google._
 import org.broadinstitute.dsde.workbench.model.{TraceId, UserInfo, WorkbenchEmail}
@@ -171,8 +162,7 @@ class LeonardoService(
   log: Logger[IO],
   cs: ContextShift[IO],
   timer: Timer[IO],
-  dbRef: DbReference[IO],
-  runtimeInstances: RuntimeInstances[IO])
+  dbRef: DbReference[IO])
     extends LazyLogging
     with Retry {
 
@@ -325,229 +315,12 @@ class LeonardoService(
       _ <- publisherQueue.enqueue1(CreateRuntimeMessage.fromRuntime(cluster, machineConfig, Some(traceId)))
     } yield CreateRuntimeResponse.fromRuntime(cluster, runtimeConfigToSave)
 
-  // throws 404 if nonexistent or no permissions
-  def getActiveClusterDetails(userInfo: UserInfo, googleProject: GoogleProject, clusterName: RuntimeName)(
-    implicit ev: ApplicativeAsk[IO, TraceId]
-  ): IO[Runtime] =
-    for {
-      cluster <- internalGetActiveClusterDetails(googleProject, clusterName) //throws 404 if nonexistent
-      _ <- checkClusterPermission(
-        userInfo,
-        RuntimeAction.GetRuntimeStatus,
-        Some(ProjectAction.GetRuntimeStatus),
-        cluster.samResource,
-        RuntimeProjectAndName(cluster.googleProject, cluster.runtimeName)
-      ) //throws 404 if no auth
-    } yield cluster
-
-  // throws 404 if nonexistent or no permissions
-  def getClusterAPI(userInfo: UserInfo, googleProject: GoogleProject, clusterName: RuntimeName)(
-    implicit ev: ApplicativeAsk[IO, TraceId]
-  ): IO[GetRuntimeResponse] =
-    for {
-      resp <- RuntimeServiceDbQueries
-        .getRuntime(googleProject, clusterName)
-        .transaction //throws 404 if nonexistent
-      _ <- checkClusterPermission(
-        userInfo,
-        RuntimeAction.GetRuntimeStatus,
-        Some(ProjectAction.GetRuntimeStatus),
-        resp.samResource,
-        RuntimeProjectAndName(resp.googleProject, resp.clusterName)
-      ) //throws 404 if no auth
-    } yield resp
-
-  private def internalGetActiveClusterDetails(googleProject: GoogleProject, clusterName: RuntimeName): IO[Runtime] =
-    clusterQuery.getActiveClusterByName(googleProject, clusterName).transaction.flatMap {
-      case None          => IO.raiseError(RuntimeNotFoundException(googleProject, clusterName, "no runtime found in database"))
-      case Some(cluster) => IO.pure(cluster)
-    }
-
   private def getUpdatedValueIfChanged[A](existing: Option[A], updated: Option[A]): Option[A] =
     (existing, updated) match {
       case (None, Some(0)) =>
         None //An updated value of 0 is considered the same as None to prevent google APIs from complaining
       case (_, Some(x)) if updated != existing => Some(x)
       case _                                   => None
-    }
-
-  def maybeChangeMasterMachineType(existingCluster: Runtime,
-                                   existingRuntimeConfig: RuntimeConfig,
-                                   targetMachineType: Option[MachineTypeName],
-                                   allowStop: Boolean,
-                                   now: Instant)(implicit ev: ApplicativeAsk[IO, TraceId]): IO[UpdateResult] = {
-    val updatedMasterMachineTypeOpt =
-      getUpdatedValueIfChanged(Some(existingRuntimeConfig.machineType), targetMachineType)
-
-    updatedMasterMachineTypeOpt match {
-      // Note: instance must be stopped in order to change machine type
-      case Some(updatedMasterMachineType) if existingCluster.status == Stopped =>
-        for {
-          _ <- CloudService.Dataproc.interpreter.updateMachineType(
-            UpdateMachineTypeParams(existingCluster, updatedMasterMachineType, now)
-          )
-        } yield UpdateResult(true, None)
-
-      case Some(updatedMasterMachineType) =>
-        existingRuntimeConfig match {
-          case x: RuntimeConfig.DataprocConfig =>
-            logger.debug("in stop and update case of maybeChangeMasterMachineType")
-            val updatedConfig = x.copy(masterMachineType = updatedMasterMachineType)
-
-            if (allowStop) {
-              val transition = StopStartTransition(updatedConfig)
-              logger.debug(
-                s"detected stop and update transition specified in request of maybeChangeMasterMachineType, ${transition}"
-              )
-              IO.pure(UpdateResult(false, Some(transition)))
-            } else
-              IO.raiseError(
-                RuntimeMachineTypeCannotBeChangedException(existingCluster.projectNameString, existingCluster.status)
-              )
-          case _ => IO.raiseError(new NotImplementedError("GCE is not implemented"))
-        }
-
-      case None =>
-        logger.debug("detected no cluster in maybeChangeMasterMachineType")
-        IO.pure(UpdateResult(false, None))
-    }
-  }
-
-  def deleteCluster(userInfo: UserInfo, googleProject: GoogleProject, clusterName: RuntimeName)(
-    implicit ev: ApplicativeAsk[IO, TraceId]
-  ): IO[Unit] =
-    for {
-      //throws 404 if no permissions
-      cluster <- getActiveClusterDetails(userInfo, googleProject, clusterName)
-
-      //if you've got to here you at least have GetClusterDetails permissions so a 403 is appropriate if you can't actually destroy it
-      _ <- checkClusterPermission(
-        userInfo,
-        RuntimeAction.DeleteRuntime,
-        Some(ProjectAction.DeleteRuntime),
-        cluster.samResource,
-        RuntimeProjectAndName(cluster.googleProject, cluster.runtimeName),
-        throw403 = true
-      )
-
-      runtimeConfig <- RuntimeConfigQueries.getRuntimeConfig(cluster.runtimeConfigId).transaction
-      _ <- if (runtimeConfig.cloudService == CloudService.Dataproc) IO.unit
-      else IO.raiseError(CloudServiceNotSupportedException(runtimeConfig.cloudService))
-
-      _ <- internalDeleteCluster(cluster)
-    } yield ()
-
-  //NOTE: This function MUST ALWAYS complete ALL steps. i.e. if deleting thing1 fails, it must still proceed to delete thing2
-  def internalDeleteCluster(cluster: Runtime)(implicit ev: ApplicativeAsk[IO, TraceId]): IO[Unit] =
-    if (cluster.status.isDeletable) {
-      val hasDataprocInfo = cluster.asyncRuntimeFields.isDefined
-      for {
-        ctx <- ev.ask
-        now <- nowInstant
-        _ <- if (hasDataprocInfo)
-          clusterQuery.updateClusterStatus(cluster.id, RuntimeStatus.PreDeleting, now).transaction >> publisherQueue
-            .enqueue1(
-              DeleteRuntimeMessage(cluster.id, None, Some(ctx))
-            )
-        else clusterQuery.completeDeletion(cluster.id, now).transaction
-        _ <- labelQuery
-          .save(cluster.id, LabelResourceType.Runtime, zombieRuntimeMonitorConfig.deletionConfirmationLabelKey, "false")
-          .transaction
-      } yield ()
-    } else if (cluster.status == RuntimeStatus.Creating) {
-      IO.raiseError(RuntimeCannotBeDeletedException(cluster.googleProject, cluster.runtimeName))
-    } else IO.unit
-
-  def stopCluster(userInfo: UserInfo, googleProject: GoogleProject, clusterName: RuntimeName)(
-    implicit ev: ApplicativeAsk[IO, AppContext]
-  ): IO[Unit] =
-    for {
-      ctx <- ev.ask
-      //throws 404 if no permissions
-      cluster <- getActiveClusterDetails(userInfo, googleProject, clusterName)
-      _ <- ctx.span.traverse(s => IO(s.addAnnotation("Done getActiveClusterDetails")))
-
-      //if you've got to here you at least have GetClusterDetails permissions so a 403 is appropriate if you can't actually stop it
-      _ <- checkClusterPermission(
-        userInfo,
-        RuntimeAction.StopStartRuntime,
-        Some(ProjectAction.StopStartRuntime),
-        cluster.samResource,
-        RuntimeProjectAndName(cluster.googleProject, cluster.runtimeName),
-        throw403 = true
-      )
-      _ <- ctx.span.traverse(s => IO(s.addAnnotation("Done check sam permission")))
-
-      runtimeConfig <- RuntimeConfigQueries.getRuntimeConfig(cluster.runtimeConfigId).transaction
-      _ <- if (runtimeConfig.cloudService == CloudService.Dataproc) IO.unit
-      else IO.raiseError(CloudServiceNotSupportedException(runtimeConfig.cloudService))
-
-      // throw 409 if the cluster is not stoppable
-      _ <- if (cluster.status.isStoppable) IO.unit
-      else
-        IO.raiseError[Unit](RuntimeCannotBeStoppedException(cluster.googleProject, cluster.runtimeName, cluster.status))
-
-      // Update the cluster status to Stopping in the DB
-      now <- nowInstant
-      _ <- clusterQuery.updateClusterStatus(cluster.id, RuntimeStatus.PreStopping, now).transaction
-
-      _ <- ctx.span.traverse(s => IO(s.addAnnotation("before enqueue message")))
-      // stop the runtime
-      _ <- publisherQueue.enqueue1(StopRuntimeMessage(cluster.id, Some(ctx.traceId)))
-    } yield ()
-
-  def startCluster(userInfo: UserInfo, googleProject: GoogleProject, clusterName: RuntimeName)(
-    implicit ev: ApplicativeAsk[IO, AppContext]
-  ): IO[Unit] =
-    for {
-      ctx <- ev.ask
-      //throws 404 if no permissions
-      cluster <- getActiveClusterDetails(userInfo, googleProject, clusterName)
-      _ <- ctx.span.traverse(s => IO(s.addAnnotation("Done getActiveClusterDetails")))
-
-      //if you've got to here you at least have GetClusterDetails permissions so a 403 is appropriate if you can't actually stop it
-      _ <- checkClusterPermission(
-        userInfo,
-        RuntimeAction.StopStartRuntime,
-        Some(ProjectAction.StopStartRuntime),
-        cluster.samResource,
-        RuntimeProjectAndName(cluster.googleProject, cluster.runtimeName),
-        throw403 = true
-      )
-      _ <- ctx.span.traverse(s => IO(s.addAnnotation("Check stopStartCluster permission")))
-      runtimeConfig <- RuntimeConfigQueries.getRuntimeConfig(cluster.runtimeConfigId).transaction
-      _ <- if (runtimeConfig.cloudService == CloudService.Dataproc) IO.unit
-      else IO.raiseError(CloudServiceNotSupportedException(runtimeConfig.cloudService))
-
-      // throw 409 if the cluster is not startable
-      _ <- if (cluster.status.isStartable) IO.unit
-      else
-        IO.raiseError[Unit](RuntimeCannotBeStartedException(cluster.googleProject, cluster.runtimeName, cluster.status))
-
-      // start the runtime
-      now <- nowInstant
-      _ <- clusterQuery.updateClusterStatus(cluster.id, RuntimeStatus.PreStarting, now).transaction
-      _ <- ctx.span.traverse(s => IO(s.addAnnotation("before enqueue message")))
-
-      _ <- publisherQueue.enqueue1(StartRuntimeMessage(cluster.id, Some(ctx.traceId)))
-    } yield ()
-
-  def listClusters(userInfo: UserInfo, params: LabelMap, googleProjectOpt: Option[GoogleProject] = None)(
-    implicit ev: ApplicativeAsk[IO, TraceId]
-  ): IO[Vector[ListRuntimeResponse]] =
-    for {
-      paramMap <- IO.fromEither(processListParameters(params))
-      clusters <- LeonardoServiceDbQueries.listClusters(paramMap._1, paramMap._2, googleProjectOpt).transaction
-      samVisibleClusters <- authProvider
-        .filterUserVisibleWithProjectFallback(clusters.map(c => (c.googleProject, c.samResource)), userInfo)
-    } yield {
-      // Making the assumption that users will always be able to access clusters that they create
-      // Fix for https://github.com/DataBiosphere/leonardo/issues/821
-      clusters
-        .filter(c =>
-          c.auditInfo.creator == userInfo.userEmail || samVisibleClusters.contains((c.googleProject, c.samResource))
-        )
-        .toVector
     }
 
   private[service] def calculateAutopauseThreshold(autopause: Option[Boolean],

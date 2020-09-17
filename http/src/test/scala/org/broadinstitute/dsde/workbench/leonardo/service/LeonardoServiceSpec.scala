@@ -4,14 +4,10 @@ package service
 
 import java.io.ByteArrayInputStream
 import java.net.URL
-import java.text.SimpleDateFormat
-import java.time.Instant
-import java.util.UUID
 
 import akka.actor.ActorSystem
 import akka.testkit.TestKit
 import cats.effect.IO
-import cats.mtl.ApplicativeAsk
 import com.typesafe.scalalogging.LazyLogging
 import fs2.concurrent.InspectableQueue
 import org.broadinstitute.dsde.workbench.google.GoogleStorageDAO
@@ -28,17 +24,14 @@ import org.broadinstitute.dsde.workbench.leonardo.db._
 import org.broadinstitute.dsde.workbench.leonardo.model._
 import org.broadinstitute.dsde.workbench.leonardo.monitor.LeoPubsubMessage
 import org.broadinstitute.dsde.workbench.leonardo.util._
-import org.broadinstitute.dsde.workbench.model._
 import org.broadinstitute.dsde.workbench.model.google._
 import org.broadinstitute.dsde.workbench.util.Retry
-import org.mockito.ArgumentMatchers.{any, eq => mockitoEq}
-import org.mockito.Mockito.{never, verify, _}
 import org.scalatest._
 import org.scalatest.concurrent.ScalaFutures
-
-import scala.concurrent.ExecutionContext.Implicits.global
 import org.scalatest.flatspec.AnyFlatSpecLike
 import org.scalatest.matchers.should.Matchers
+
+import scala.concurrent.ExecutionContext.Implicits.global
 
 class LeonardoServiceSpec
     extends TestKit(ActorSystem("leonardotest"))
@@ -183,17 +176,6 @@ class LeonardoServiceSpec
     dbInitBucketOpt shouldBe None
   }
 
-  it should "create and get a cluster" in isolatedDbTest {
-    // create a cluster
-    val clusterCreateResponse =
-      leo.createCluster(userInfo, project, name1, testClusterRequest).unsafeToFuture.futureValue
-
-    // get the cluster detail
-    val clusterGetResponse = leo.getActiveClusterDetails(userInfo, project, name1).unsafeToFuture.futureValue
-    // check the create response and get response are the same
-    TestUtils.compareClusterAndCreateClusterAPIResponse(clusterGetResponse, clusterCreateResponse)
-  }
-
   it should "create a cluster with the latest welder from welderRegistry" in isolatedDbTest {
     // create the cluster
     val clusterRequest1 = testClusterRequest.copy(
@@ -298,13 +280,6 @@ class LeonardoServiceSpec
     )
     clusterResponse.labels.get("tool") shouldBe Some("RStudio")
     clusterResponse.clusterUrl shouldBe new URL(s"https://leo/proxy/${project.value}/${name1.asString}/rstudio")
-
-    // list clusters should return RStudio information
-    val clusterList = leoForTest.listClusters(userInfo, Map.empty, Some(project)).unsafeToFuture.futureValue
-    clusterList.size shouldBe 1
-    clusterList.toSet shouldBe Set(clusterResponse).map(x => LeoLenses.createRuntimeRespToListRuntimeResp.get(x))
-    clusterList.head.labels.get("tool") shouldBe Some("RStudio")
-    clusterList.head.clusterUrl shouldBe new URL(s"https://leo/proxy/${project.value}/${name1.asString}/rstudio")
   }
 
   it should "create a single node with default machine config cluster when no machine config is set" in isolatedDbTest {
@@ -493,386 +468,130 @@ class LeonardoServiceSpec
     clusterCreateResponse.runtimeConfig shouldEqual expectedMachineConfig
   }
 
-  it should "throw ClusterNotFoundException for nonexistent clusters" in isolatedDbTest {
-    val exc = leo
-      .getActiveClusterDetails(userInfo, GoogleProject("nonexistent"), RuntimeName("cluster"))
-      .unsafeToFuture
-      .failed
-      .futureValue
-    exc shouldBe a[RuntimeNotFoundException]
-  }
-
-  it should "throw ClusterAlreadyExistsException when creating a cluster with same name and project as an existing cluster" in isolatedDbTest {
-    val cluster1 = leo.createCluster(userInfo, project, name0, testClusterRequest).unsafeToFuture.futureValue
-    val exc = leo.createCluster(userInfo, project, name0, testClusterRequest).unsafeToFuture.failed.futureValue
-    exc shouldBe a[RuntimeAlreadyExistsException]
-  }
-
-  it should "create two clusters with same name with only one active" in isolatedDbTest {
-    // create first cluster
-    val cluster = leo.createCluster(userInfo, project, name0, testClusterRequest).unsafeToFuture.futureValue
-
-    // check that the cluster was created
-    val dbCluster = dbFutureValue(clusterQuery.getClusterById(cluster.id))
-    dbCluster.map(_.status) shouldBe Some(RuntimeStatus.Creating)
-
-    // change cluster status to Running so that it can be deleted
-    dbFutureValue(clusterQuery.setToRunning(cluster.id, IP("numbers.and.dots"), Instant.now))
-
-    // delete the cluster
-    leo.deleteCluster(userInfo, project, name0).unsafeToFuture.futureValue
-
-    // check that the cluster was deleted
-    val dbDeletingCluster = dbFutureValue(clusterQuery.getClusterById(cluster.id))
-    dbDeletingCluster.map(_.status) shouldBe Some(RuntimeStatus.Deleted)
-
-    // recreate cluster with same project and cluster name
-    val cluster2 = leo.createCluster(userInfo, project, name0, testClusterRequest).unsafeToFuture.futureValue
-
-    // check that the cluster was created
-    val dbCluster2 = dbFutureValue(clusterQuery.getClusterById(cluster2.id))
-    dbCluster2.map(_.status) shouldBe Some(RuntimeStatus.Creating)
-  }
-
-  it should "delete a Running cluster" in isolatedDbTest {
-    // need a specialized LeonardoService for this test, so we can spy on its authProvider
-    val spyProvider: LeoAuthProvider[IO] = spy(authProvider)
-    val mockPetGoogleStorageDAO: String => GoogleStorageDAO = _ => {
-      new MockGoogleStorageDAO
-    }
-    implicit val runtimeInstances = new RuntimeInstances[IO](dataprocInterp, gceInterp)
-    val publisherQueue = QueueFactory.makePublisherQueue()
-    val leoForTest = new LeonardoService(dataprocConfig,
-                                         imageConfig,
-                                         MockWelderDAO,
-                                         proxyConfig,
-                                         swaggerConfig,
-                                         autoFreezeConfig,
-                                         Config.zombieRuntimeMonitorConfig,
-                                         welderConfig,
-                                         mockPetGoogleStorageDAO,
-                                         spyProvider,
-                                         serviceAccountProvider,
-                                         bucketHelper,
-                                         new MockDockerDAO,
-                                         publisherQueue)
-
-    val cluster = leoForTest.createCluster(userInfo, project, name1, testClusterRequest).unsafeToFuture.futureValue
-
-    // check that the cluster was created
-    val dbCluster = dbFutureValue(clusterQuery.getClusterById(cluster.id))
-    dbCluster.map(_.status) shouldBe Some(RuntimeStatus.Creating)
-
-    // change cluster status to Running so that it can be deleted
-    val updateAsyncClusterCreationFields = UpdateAsyncClusterCreationFields(
-      Some(GcsPath(initBucketName, GcsObjectName(""))),
-      Some(serviceAccountKey),
-      cluster.id,
-      Some(makeAsyncRuntimeFields(1)),
-      Instant.now
-    )
-    dbFutureValue {
-      clusterQuery.updateAsyncClusterCreationFields(updateAsyncClusterCreationFields)
-    }
-    dbFutureValue(clusterQuery.setToRunning(cluster.id, IP("numbers.and.dots"), Instant.now))
-
-    // delete the cluster
-    leoForTest.deleteCluster(userInfo, project, name1).unsafeToFuture.futureValue
-
-    val validateStatus = withLeoPublisher(publisherQueue) {
-      for {
-        status <- clusterQuery.getClusterStatus(cluster.id).transaction
-        message <- publisherQueue.tryDequeue1
-      } yield {
-        status shouldBe Some(RuntimeStatus.Deleting)
-        message shouldBe (None)
-      }
-    }
-
-    validateStatus.unsafeRunSync()
-    // the auth provider should have not yet been notified of deletion
-    verify(spyProvider, never).notifyResourceDeleted(
-      RuntimeSamResourceId(mockitoEq(cluster.samResource.resourceId)),
-      mockitoEq(userInfo.userEmail),
-      mockitoEq(project)
-    )(any[SamResource[RuntimeSamResourceId]], any[ApplicativeAsk[IO, TraceId]])
-  }
-
-  it should "delete a cluster that has status Error" in isolatedDbTest {
-    // need a specialized LeonardoService for this test, so we can spy on its authProvider
-    val spyProvider: LeoAuthProvider[IO] = spy(authProvider)
-    val mockPetGoogleStorageDAO: String => GoogleStorageDAO = _ => {
-      new MockGoogleStorageDAO
-    }
-    implicit val runtimeInstances = new RuntimeInstances[IO](dataprocInterp, gceInterp)
-    val publisherQueue = QueueFactory.makePublisherQueue()
-    val leoForTest = new LeonardoService(dataprocConfig,
-                                         imageConfig,
-                                         MockWelderDAO,
-                                         proxyConfig,
-                                         swaggerConfig,
-                                         autoFreezeConfig,
-                                         Config.zombieRuntimeMonitorConfig,
-                                         welderConfig,
-                                         mockPetGoogleStorageDAO,
-                                         spyProvider,
-                                         serviceAccountProvider,
-                                         bucketHelper,
-                                         new MockDockerDAO,
-                                         publisherQueue)
-
-    // create the cluster
-    val cluster = leoForTest.createCluster(userInfo, project, name1, testClusterRequest).unsafeToFuture.futureValue
-
-    // check that the cluster was created
-    val dbCluster = dbFutureValue(clusterQuery.getClusterById(cluster.id))
-    dbCluster.map(_.status) shouldBe Some(RuntimeStatus.Creating)
-
-    // change the cluster status to Error
-    val updateAsyncClusterCreationFields = UpdateAsyncClusterCreationFields(
-      Some(GcsPath(initBucketName, GcsObjectName(""))),
-      Some(serviceAccountKey),
-      cluster.id,
-      Some(makeAsyncRuntimeFields(1)),
-      Instant.now
-    )
-    dbFutureValue {
-      clusterQuery.updateAsyncClusterCreationFields(updateAsyncClusterCreationFields)
-    }
-    dbFutureValue(clusterQuery.updateClusterStatus(cluster.id, RuntimeStatus.Error, Instant.now))
-
-    // delete the cluster
-    leoForTest.deleteCluster(userInfo, project, name1).unsafeToFuture.futureValue
-
-    val validateStatus = withLeoPublisher(publisherQueue) {
-      for {
-        status <- clusterQuery.getClusterStatus(cluster.id).transaction
-        message <- publisherQueue.tryDequeue1
-      } yield {
-        status shouldBe Some(RuntimeStatus.Deleting)
-        message shouldBe (None)
-      }
-    }
-
-    validateStatus.unsafeRunSync()
-
-    // the auth provider should have not yet been notified of deletion
-    verify(spyProvider, never).notifyResourceDeleted(
-      RuntimeSamResourceId(mockitoEq(cluster.samResource.resourceId)),
-      mockitoEq(userInfo.userEmail),
-      mockitoEq(project)
-    )(any[SamResource[RuntimeSamResourceId]], any[ApplicativeAsk[IO, TraceId]])
-  }
-
-  it should "delete a cluster's instances" in isolatedDbTest {
-    val publisherQueue = QueueFactory.makePublisherQueue()
-    implicit val runtimeInstances = new RuntimeInstances[IO](dataprocInterp, gceInterp)
-    val leo = makeLeo(publisherQueue)
-    // create the cluster
-    val cluster =
-      leo.createCluster(userInfo, project, name1, testClusterRequest).unsafeToFuture.futureValue
-
-    // check that the cluster was created
-    val dbCluster = dbFutureValue(clusterQuery.getClusterById(cluster.id))
-    dbCluster.map(_.status) shouldBe Some(RuntimeStatus.Creating)
-
-    // populate some instances for the cluster
-    val getClusterKey = LeoLenses.createRuntimeRespToGetClusterKey.get(cluster)
-    dbFutureValue {
-      instanceQuery.saveAllForCluster(getClusterId(getClusterKey),
-                                      Seq(masterInstance, workerInstance1, workerInstance2))
-    }
-
-    // change cluster status to Running so that it can be deleted
-    val updateAsyncClusterCreationFields = UpdateAsyncClusterCreationFields(
-      Some(GcsPath(initBucketName, GcsObjectName(""))),
-      Some(serviceAccountKey),
-      cluster.id,
-      Some(makeAsyncRuntimeFields(1)),
-      Instant.now
-    )
-    dbFutureValue {
-      clusterQuery.updateAsyncClusterCreationFields(updateAsyncClusterCreationFields)
-    }
-    dbFutureValue(clusterQuery.setToRunning(cluster.id, IP("numbers.and.dots"), Instant.now))
-
-    // delete the cluster
-    leo.deleteCluster(userInfo, project, name1).unsafeToFuture.futureValue
-
-    val validateStatus = withLeoPublisher(publisherQueue) {
-      for {
-        status <- clusterQuery.getClusterStatus(cluster.id).transaction
-        message <- publisherQueue.tryDequeue1
-      } yield {
-        status shouldBe Some(RuntimeStatus.Deleting)
-        message shouldBe (None)
-      }
-    }
-
-    validateStatus.unsafeRunSync()
-    // check that the instances are still in the DB (they get removed by the ClusterMonitorActor)
-    val getClusterIdKey = LeoLenses.createRuntimeRespToGetClusterKey.get(cluster)
-    val instances = dbFutureValue(instanceQuery.getAllForCluster(getClusterId(getClusterIdKey)))
-    instances.toSet shouldBe Set(masterInstance, workerInstance1, workerInstance2)
-  }
-
-  it should "throw a JupyterExtensionException when the extensionUri is too long" in isolatedDbTest {
-    // create the cluster
-    val clusterRequest = testClusterRequest.copy(userJupyterExtensionConfig =
-      Some(
-        UserJupyterExtensionConfig(nbExtensions =
-          Map("notebookExtension" -> s"gs://bucket/${Stream.continually('a').take(1025).mkString}")
-        )
-      )
-    )
-    val response = leo.createCluster(userInfo, project, name0, clusterRequest).unsafeToFuture.failed.futureValue
-
-    response shouldBe a[BucketObjectException]
-  }
-
-  it should "throw a JupyterExtensionException when the jupyterExtensionUri does not point to a GCS object" in isolatedDbTest {
-    // create the cluster
-    val response =
-      leo
-        .createCluster(
-          userInfo,
-          project,
-          name0,
-          testClusterRequest.copy(userJupyterExtensionConfig =
-            Some(UserJupyterExtensionConfig(nbExtensions = Map("notebookExtension" -> "gs://bogus/object.tar.gz")))
-          )
-        )
-        .unsafeToFuture
-        .failed
-        .futureValue
-
-    response shouldBe a[BucketObjectException]
-  }
-
-  it should "list no clusters" in isolatedDbTest {
-    leo.listClusters(userInfo, Map.empty).unsafeToFuture.futureValue shouldBe 'empty
-    leo.listClusters(userInfo, Map("foo" -> "bar", "baz" -> "biz")).unsafeToFuture.futureValue shouldBe 'empty
-  }
-
-  it should "list all clusters" in isolatedDbTest {
-    // create a couple of clusters
-    val clusterName1 = RuntimeName(s"cluster-${UUID.randomUUID.toString}")
-    val cluster1 = leo.createCluster(userInfo, project, clusterName1, testClusterRequest).unsafeToFuture.futureValue
-
-    val clusterName2 = RuntimeName(s"cluster-${UUID.randomUUID.toString}")
-    val cluster2 = leo
-      .createCluster(userInfo, project, clusterName2, testClusterRequest.copy(labels = Map("a" -> "b", "foo" -> "bar")))
-      .unsafeToFuture
-      .futureValue
-
-    leo.listClusters(userInfo, Map.empty).unsafeToFuture.futureValue.toSet shouldBe Set(cluster1, cluster2).map(
-      LeoLenses.createRuntimeRespToListRuntimeResp.get
-    )
-  }
-
-  it should "error when trying to delete a creating cluster" in isolatedDbTest {
-    // create cluster
-    leo.createCluster(userInfo, project, name0, testClusterRequest).unsafeToFuture.futureValue
-
-    // should fail to delete because cluster is in Creating status
-    leo
-      .deleteCluster(userInfo, project, name0)
-      .unsafeToFuture
-      .failed
-      .futureValue shouldBe a[RuntimeCannotBeDeletedException]
-  }
-
-  it should "list all active clusters" in isolatedDbTest {
-    // create a couple of clusters
-    val cluster1 = leo.createCluster(userInfo, project, name1, testClusterRequest).unsafeToFuture.futureValue
-
-    val clusterName2 = RuntimeName("test-cluster-2")
-    val cluster2 = leo
-      .createCluster(userInfo, project, clusterName2, testClusterRequest.copy(labels = Map("a" -> "b", "foo" -> "bar")))
-      .unsafeToFuture
-      .futureValue
-
-    leo.listClusters(userInfo, Map("includeDeleted" -> "false")).unsafeToFuture.futureValue.toSet shouldBe Set(
-      cluster1,
-      cluster2
-    ).map(
-      LeoLenses.createRuntimeRespToListRuntimeResp.get
-    )
-    leo.listClusters(userInfo, Map.empty).unsafeToFuture.futureValue.toSet shouldBe Set(cluster1, cluster2).map(
-      LeoLenses.createRuntimeRespToListRuntimeResp.get
-    )
-    leo.listClusters(userInfo, Map.empty).unsafeToFuture.futureValue.toSet shouldBe Set(cluster1, cluster2).map(
-      LeoLenses.createRuntimeRespToListRuntimeResp.get
-    )
-
-    val clusterName3 = RuntimeName("test-cluster-3")
-    val cluster3 = leo
-      .createCluster(userInfo, project, clusterName3, testClusterRequest.copy(labels = Map("a" -> "b", "foo" -> "bar")))
-      .unsafeToFuture
-      .futureValue
-
-    dbFutureValue(clusterQuery.completeDeletion(cluster3.id, Instant.now))
-
-    leo.listClusters(userInfo, Map.empty).unsafeToFuture.futureValue.toSet shouldBe Set(cluster1, cluster2).map(
-      LeoLenses.createRuntimeRespToListRuntimeResp.get
-    )
-    leo.listClusters(userInfo, Map("includeDeleted" -> "false")).unsafeToFuture.futureValue.toSet shouldBe Set(
-      cluster1,
-      cluster2
-    ).map(
-      LeoLenses.createRuntimeRespToListRuntimeResp.get
-    )
-    leo.listClusters(userInfo, Map("includeDeleted" -> "true")).unsafeToFuture.futureValue.toSet.size shouldBe 3
-  }
-
-  it should "list clusters with labels" in isolatedDbTest {
-    // create a couple of clusters
-    val clusterName1 = RuntimeName(s"cluster-${UUID.randomUUID.toString}")
-    val cluster1 = leo.createCluster(userInfo, project, clusterName1, testClusterRequest).unsafeToFuture.futureValue
-
-    val clusterName2 = RuntimeName(s"test-cluster-2")
-    val cluster2 = leo
-      .createCluster(userInfo, project, clusterName2, testClusterRequest.copy(labels = Map("a" -> "b", "foo" -> "bar")))
-      .unsafeToFuture
-      .futureValue
-
-    leo.listClusters(userInfo, Map("foo" -> "bar")).unsafeToFuture.futureValue.toSet shouldBe Set(cluster1, cluster2)
-      .map(
-        LeoLenses.createRuntimeRespToListRuntimeResp.get
-      )
-    leo.listClusters(userInfo, Map("foo" -> "bar", "bam" -> "yes")).unsafeToFuture.futureValue.toSet shouldBe Set(
-      cluster1
-    ).map(
-      LeoLenses.createRuntimeRespToListRuntimeResp.get
-    )
-    leo
-      .listClusters(userInfo, Map("foo" -> "bar", "bam" -> "yes", "vcf" -> "no"))
-      .unsafeToFuture
-      .futureValue
-      .toSet shouldBe Set(
-      cluster1
-    ).map(LeoLenses.createRuntimeRespToListRuntimeResp.get)
-    leo.listClusters(userInfo, Map("a" -> "b")).unsafeToFuture.futureValue.toSet shouldBe Set(cluster2).map(
-      LeoLenses.createRuntimeRespToListRuntimeResp.get
-    )
-    leo.listClusters(userInfo, Map("foo" -> "bar", "baz" -> "biz")).unsafeToFuture.futureValue.toSet shouldBe Set.empty
-    leo
-      .listClusters(userInfo, Map("A" -> "B"))
-      .unsafeToFuture
-      .futureValue
-      .toSet shouldBe Set(cluster2).map(
-      LeoLenses.createRuntimeRespToListRuntimeResp.get
-    ) // labels are not case sensitive because MySQL
-    //Assert that extensions were added as labels as well
-    leo
-      .listClusters(userInfo, Map("abc" -> "def", "pqr" -> "pqr", "xyz" -> "xyz"))
-      .unsafeToFuture
-      .futureValue
-      .toSet shouldBe Set(
-      cluster1,
-      cluster2
-    ).map(LeoLenses.createRuntimeRespToListRuntimeResp.get)
-  }
+//  it should "list no clusters" in isolatedDbTest {
+//    leo.listClusters(userInfo, Map.empty).unsafeToFuture.futureValue shouldBe 'empty
+//    leo.listClusters(userInfo, Map("foo" -> "bar", "baz" -> "biz")).unsafeToFuture.futureValue shouldBe 'empty
+//  }
+//
+//  it should "list all clusters" in isolatedDbTest {
+//    // create a couple of clusters
+//    val clusterName1 = RuntimeName(s"cluster-${UUID.randomUUID.toString}")
+//    val cluster1 = leo.createCluster(userInfo, project, clusterName1, testClusterRequest).unsafeToFuture.futureValue
+//
+//    val clusterName2 = RuntimeName(s"cluster-${UUID.randomUUID.toString}")
+//    val cluster2 = leo
+//      .createCluster(userInfo, project, clusterName2, testClusterRequest.copy(labels = Map("a" -> "b", "foo" -> "bar")))
+//      .unsafeToFuture
+//      .futureValue
+//
+//    leo.listClusters(userInfo, Map.empty).unsafeToFuture.futureValue.toSet shouldBe Set(cluster1, cluster2).map(
+//      LeoLenses.createRuntimeRespToListRuntimeResp.get
+//    )
+//  }
+//
+//  it should "error when trying to delete a creating cluster" in isolatedDbTest {
+//    // create cluster
+//    leo.createCluster(userInfo, project, name0, testClusterRequest).unsafeToFuture.futureValue
+//
+//    // should fail to delete because cluster is in Creating status
+//    leo
+//      .deleteCluster(userInfo, project, name0)
+//      .unsafeToFuture
+//      .failed
+//      .futureValue shouldBe a[RuntimeCannotBeDeletedException]
+//  }
+//
+//  it should "list all active clusters" in isolatedDbTest {
+//    // create a couple of clusters
+//    val cluster1 = leo.createCluster(userInfo, project, name1, testClusterRequest).unsafeToFuture.futureValue
+//
+//    val clusterName2 = RuntimeName("test-cluster-2")
+//    val cluster2 = leo
+//      .createCluster(userInfo, project, clusterName2, testClusterRequest.copy(labels = Map("a" -> "b", "foo" -> "bar")))
+//      .unsafeToFuture
+//      .futureValue
+//
+//    leo.listClusters(userInfo, Map("includeDeleted" -> "false")).unsafeToFuture.futureValue.toSet shouldBe Set(
+//      cluster1,
+//      cluster2
+//    ).map(
+//      LeoLenses.createRuntimeRespToListRuntimeResp.get
+//    )
+//    leo.listClusters(userInfo, Map.empty).unsafeToFuture.futureValue.toSet shouldBe Set(cluster1, cluster2).map(
+//      LeoLenses.createRuntimeRespToListRuntimeResp.get
+//    )
+//    leo.listClusters(userInfo, Map.empty).unsafeToFuture.futureValue.toSet shouldBe Set(cluster1, cluster2).map(
+//      LeoLenses.createRuntimeRespToListRuntimeResp.get
+//    )
+//
+//    val clusterName3 = RuntimeName("test-cluster-3")
+//    val cluster3 = leo
+//      .createCluster(userInfo, project, clusterName3, testClusterRequest.copy(labels = Map("a" -> "b", "foo" -> "bar")))
+//      .unsafeToFuture
+//      .futureValue
+//
+//    dbFutureValue(clusterQuery.completeDeletion(cluster3.id, Instant.now))
+//
+//    leo.listClusters(userInfo, Map.empty).unsafeToFuture.futureValue.toSet shouldBe Set(cluster1, cluster2).map(
+//      LeoLenses.createRuntimeRespToListRuntimeResp.get
+//    )
+//    leo.listClusters(userInfo, Map("includeDeleted" -> "false")).unsafeToFuture.futureValue.toSet shouldBe Set(
+//      cluster1,
+//      cluster2
+//    ).map(
+//      LeoLenses.createRuntimeRespToListRuntimeResp.get
+//    )
+//    leo.listClusters(userInfo, Map("includeDeleted" -> "true")).unsafeToFuture.futureValue.toSet.size shouldBe 3
+//  }
+//
+//  it should "list clusters with labels" in isolatedDbTest {
+//    // create a couple of clusters
+//    val clusterName1 = RuntimeName(s"cluster-${UUID.randomUUID.toString}")
+//    val cluster1 = leo.createCluster(userInfo, project, clusterName1, testClusterRequest).unsafeToFuture.futureValue
+//
+//    val clusterName2 = RuntimeName(s"test-cluster-2")
+//    val cluster2 = leo
+//      .createCluster(userInfo, project, clusterName2, testClusterRequest.copy(labels = Map("a" -> "b", "foo" -> "bar")))
+//      .unsafeToFuture
+//      .futureValue
+//
+//    leo.listClusters(userInfo, Map("foo" -> "bar")).unsafeToFuture.futureValue.toSet shouldBe Set(cluster1, cluster2)
+//      .map(
+//        LeoLenses.createRuntimeRespToListRuntimeResp.get
+//      )
+//    leo.listClusters(userInfo, Map("foo" -> "bar", "bam" -> "yes")).unsafeToFuture.futureValue.toSet shouldBe Set(
+//      cluster1
+//    ).map(
+//      LeoLenses.createRuntimeRespToListRuntimeResp.get
+//    )
+//    leo
+//      .listClusters(userInfo, Map("foo" -> "bar", "bam" -> "yes", "vcf" -> "no"))
+//      .unsafeToFuture
+//      .futureValue
+//      .toSet shouldBe Set(
+//      cluster1
+//    ).map(LeoLenses.createRuntimeRespToListRuntimeResp.get)
+//    leo.listClusters(userInfo, Map("a" -> "b")).unsafeToFuture.futureValue.toSet shouldBe Set(cluster2).map(
+//      LeoLenses.createRuntimeRespToListRuntimeResp.get
+//    )
+//    leo.listClusters(userInfo, Map("foo" -> "bar", "baz" -> "biz")).unsafeToFuture.futureValue.toSet shouldBe Set.empty
+//    leo
+//      .listClusters(userInfo, Map("A" -> "B"))
+//      .unsafeToFuture
+//      .futureValue
+//      .toSet shouldBe Set(cluster2).map(
+//      LeoLenses.createRuntimeRespToListRuntimeResp.get
+//    ) // labels are not case sensitive because MySQL
+//    //Assert that extensions were added as labels as well
+//    leo
+//      .listClusters(userInfo, Map("abc" -> "def", "pqr" -> "pqr", "xyz" -> "xyz"))
+//      .unsafeToFuture
+//      .futureValue
+//      .toSet shouldBe Set(
+//      cluster1,
+//      cluster2
+//    ).map(LeoLenses.createRuntimeRespToListRuntimeResp.get)
+//  }
 
   it should "throw IllegalLabelKeyException when using a forbidden label" in isolatedDbTest {
     // cluster should not be allowed to have a label with key of "includeDeleted"
@@ -883,249 +602,11 @@ class LeonardoServiceSpec
     includeDeletedResponse shouldBe a[IllegalLabelKeyException]
   }
 
-  it should "list clusters with swagger-style labels" in isolatedDbTest {
-    // create a couple of clusters
-    val clusterName1 = RuntimeName(s"cluster-${UUID.randomUUID.toString}")
-    val cluster1 = leo.createCluster(userInfo, project, clusterName1, testClusterRequest).unsafeToFuture.futureValue
-
-    val clusterName2 = RuntimeName(s"cluster-${UUID.randomUUID.toString}")
-    val cluster2 = leo
-      .createCluster(userInfo, project, clusterName2, testClusterRequest.copy(labels = Map("a" -> "b", "foo" -> "bar")))
-      .unsafeToFuture
-      .futureValue
-
-    leo.listClusters(userInfo, Map("_labels" -> "foo=bar")).unsafeToFuture.futureValue.toSet shouldBe Set(cluster1,
-                                                                                                          cluster2).map(
-      LeoLenses.createRuntimeRespToListRuntimeResp.get
-    )
-    leo.listClusters(userInfo, Map("_labels" -> "foo=bar,bam=yes")).unsafeToFuture.futureValue.toSet shouldBe Set(
-      cluster1
-    ).map(
-      LeoLenses.createRuntimeRespToListRuntimeResp.get
-    )
-    leo
-      .listClusters(userInfo, Map("_labels" -> "foo=bar,bam=yes,vcf=no"))
-      .unsafeToFuture
-      .futureValue
-      .toSet shouldBe Set(cluster1).map(
-      LeoLenses.createRuntimeRespToListRuntimeResp.get
-    )
-    leo.listClusters(userInfo, Map("_labels" -> "a=b")).unsafeToFuture.futureValue.toSet shouldBe Set(cluster2).map(
-      LeoLenses.createRuntimeRespToListRuntimeResp.get
-    )
-    leo.listClusters(userInfo, Map("_labels" -> "baz=biz")).unsafeToFuture.futureValue.toSet shouldBe Set.empty
-    leo.listClusters(userInfo, Map("_labels" -> "A=B")).unsafeToFuture.futureValue.toSet shouldBe Set(cluster2).map(
-      LeoLenses.createRuntimeRespToListRuntimeResp.get
-    ) // labels are not case sensitive because MySQL
-    leo
-      .listClusters(userInfo, Map("_labels" -> "foo%3Dbar"))
-      .unsafeToFuture
-      .failed
-      .futureValue shouldBe a[ParseLabelsException]
-    leo
-      .listClusters(userInfo, Map("_labels" -> "foo=bar;bam=yes"))
-      .unsafeToFuture
-      .failed
-      .futureValue shouldBe a[ParseLabelsException]
-    leo
-      .listClusters(userInfo, Map("_labels" -> "foo=bar,bam"))
-      .unsafeToFuture
-      .failed
-      .futureValue shouldBe a[ParseLabelsException]
-    leo
-      .listClusters(userInfo, Map("_labels" -> "bogus"))
-      .unsafeToFuture
-      .failed
-      .futureValue shouldBe a[ParseLabelsException]
-    leo
-      .listClusters(userInfo, Map("_labels" -> "a,b"))
-      .unsafeToFuture
-      .failed
-      .futureValue shouldBe a[ParseLabelsException]
-  }
-
-  it should "list clusters belonging to a project" in isolatedDbTest {
-    // create a couple of clusters
-    val cluster1 = leo.createCluster(userInfo, project, name1, testClusterRequest).unsafeToFuture.futureValue
-    val cluster2 = leo
-      .createCluster(userInfo, project2, name2, testClusterRequest.copy(labels = Map("a" -> "b", "foo" -> "bar")))
-      .unsafeToFuture
-      .futureValue
-
-    leo.listClusters(userInfo, Map.empty, Some(project)).unsafeToFuture.futureValue.toSet shouldBe Set(cluster1).map(
-      LeoLenses.createRuntimeRespToListRuntimeResp.get
-    )
-    leo.listClusters(userInfo, Map.empty, Some(project2)).unsafeToFuture.futureValue.toSet shouldBe Set(cluster2).map(
-      LeoLenses.createRuntimeRespToListRuntimeResp.get
-    )
-    leo.listClusters(userInfo, Map("foo" -> "bar"), Some(project)).unsafeToFuture.futureValue.toSet shouldBe Set(
-      cluster1
-    ).map(
-      LeoLenses.createRuntimeRespToListRuntimeResp.get
-    )
-    leo.listClusters(userInfo, Map("foo" -> "bar"), Some(project2)).unsafeToFuture.futureValue.toSet shouldBe Set(
-      cluster2
-    ).map(
-      LeoLenses.createRuntimeRespToListRuntimeResp.get
-    )
-    leo.listClusters(userInfo, Map("k" -> "v"), Some(project)).unsafeToFuture.futureValue.toSet shouldBe Set.empty
-    leo.listClusters(userInfo, Map("k" -> "v"), Some(project2)).unsafeToFuture.futureValue.toSet shouldBe Set.empty
-    leo
-      .listClusters(userInfo, Map("foo" -> "bar"), Some(GoogleProject("non-existing-project")))
-      .unsafeToFuture
-      .futureValue
-      .toSet shouldBe Set.empty
-  }
-
-  it should "stop a cluster" in isolatedDbTest {
-    val publisherQueue = QueueFactory.makePublisherQueue()
-    implicit val runtimeInstances = new RuntimeInstances[IO](dataprocInterp, gceInterp)
-    val leo = makeLeo(publisherQueue)
-    // create the cluster
-    val cluster =
-      leo.createCluster(userInfo, project, name1, testClusterRequest).unsafeToFuture.futureValue
-
-    // check that the cluster was created
-    val dbCluster = dbFutureValue(clusterQuery.getClusterById(cluster.id))
-    dbCluster.map(_.status) shouldBe Some(RuntimeStatus.Creating)
-
-    // populate some instances for the cluster
-    val clusterInstances = Seq(masterInstance, workerInstance1, workerInstance2)
-    val getClusterKey = LeoLenses.createRuntimeRespToGetClusterKey.get(cluster)
-    dbFutureValue(instanceQuery.saveAllForCluster(getClusterId(getClusterKey), clusterInstances))
-    // TODO
-//    computeDAO.instances ++= clusterInstances.groupBy(_.key).mapValues(_.head)
-//    computeDAO.instanceMetadata ++= clusterInstances.groupBy(_.key).mapValues(_ => Map.empty)
-
-    // set the cluster to Running
-    dbFutureValue(clusterQuery.setToRunning(cluster.id, IP("1.2.3.4"), Instant.now))
-
-    // stop the cluster
-    leo.stopCluster(userInfo, project, name1).unsafeToFuture.futureValue
-
-    val validateStatus = withLeoPublisher(publisherQueue) {
-      for {
-        status <- clusterQuery.getClusterStatus(cluster.id).transaction
-        message <- publisherQueue.tryDequeue1
-      } yield {
-        status shouldBe Some(RuntimeStatus.Stopping)
-        message shouldBe (None)
-      }
-    }
-
-    validateStatus.unsafeRunSync()
-    // instance status should still be Running in the DB
-    // the ClusterMonitorActor is what updates instance status
-    val instances = dbFutureValue(instanceQuery.getAllForCluster(getClusterId(getClusterKey)))
-    instances.size shouldBe 3
-    instances.map(_.status).toSet shouldBe Set(GceInstanceStatus.Running)
-
-    // Google instances should be stopped
-    // TODO
-//    computeDAO.instances.keySet shouldBe clusterInstances.map(_.key).toSet
-//    computeDAO.instanceMetadata.keySet shouldBe clusterInstances.map(_.key).toSet
-//    computeDAO.instances.values.toSet shouldBe clusterInstances.map(_.copy(status = InstanceStatus.Stopped)).toSet
-//    computeDAO.instanceMetadata.values.map(_.keys).flatten.toSet shouldBe Set("shutdown-script")
-  }
-
   it should "calculate autopause threshold properly" in {
     LeonardoService.calculateAutopauseThreshold(None, None, autoFreezeConfig) shouldBe autoFreezeConfig.autoFreezeAfter.toMinutes.toInt
     LeonardoService.calculateAutopauseThreshold(Some(false), None, autoFreezeConfig) shouldBe autoPauseOffValue
     LeonardoService.calculateAutopauseThreshold(Some(true), None, autoFreezeConfig) shouldBe autoFreezeConfig.autoFreezeAfter.toMinutes.toInt
     LeonardoService.calculateAutopauseThreshold(Some(true), Some(30), autoFreezeConfig) shouldBe 30
-  }
-
-  it should "start a cluster" in isolatedDbTest {
-    val publisherQueue = QueueFactory.makePublisherQueue()
-    implicit val runtimeInstances = new RuntimeInstances[IO](dataprocInterp, gceInterp)
-    val leo = makeLeo(publisherQueue)
-
-    // create the cluster
-    val cluster =
-      leo.createCluster(userInfo, project, name1, testClusterRequest).unsafeToFuture.futureValue
-
-    // check that the cluster was created
-    val dbCluster = dbFutureValue(clusterQuery.getClusterById(cluster.id))
-    dbCluster.map(_.status) shouldBe Some(RuntimeStatus.Creating)
-
-    val getClusterKey = LeoLenses.createRuntimeRespToGetClusterKey.get(cluster)
-
-    // populate some instances for the cluster and set its status to Stopped
-    val clusterInstances =
-      Seq(masterInstance, workerInstance1, workerInstance2).map(_.copy(status = GceInstanceStatus.Stopped))
-    dbFutureValue(instanceQuery.saveAllForCluster(getClusterId(getClusterKey), clusterInstances))
-    dbFutureValue(clusterQuery.updateClusterStatus(cluster.id, RuntimeStatus.Stopped, Instant.now))
-    // TODO
-//    computeDAO.instances ++= clusterInstances.groupBy(_.key).mapValues(_.head)
-//    computeDAO.instanceMetadata ++= clusterInstances.groupBy(_.key).mapValues(_ => Map.empty)
-
-    // start the cluster
-    leo.startCluster(userInfo, project, name1).unsafeToFuture.futureValue
-
-    // cluster status should be Starting in the DB
-    val validateStatus = withLeoPublisher(publisherQueue) {
-      for {
-        status <- clusterQuery.getClusterStatus(cluster.id).transaction
-        message <- publisherQueue.tryDequeue1
-      } yield {
-        status shouldBe Some(RuntimeStatus.Starting)
-        message shouldBe (None)
-      }
-    }
-
-    validateStatus.unsafeRunSync()
-    // instance status should still be Stopped in the DB
-    // the ClusterMonitorActor is what updates instance status
-    val instances = dbFutureValue {
-      instanceQuery.getAllForCluster(getClusterId(getClusterKey))
-    }
-    instances.size shouldBe 3
-    instances.map(_.status).toSet shouldBe Set(GceInstanceStatus.Stopped)
-
-    // Google instances should be started
-    // TODO
-//    computeDAO.instances.keySet shouldBe clusterInstances.map(_.key).toSet
-//    computeDAO.instanceMetadata.keySet shouldBe clusterInstances.map(_.key).toSet
-//    computeDAO.instances.values.toSet shouldBe clusterInstances.map(_.copy(status = InstanceStatus.Running)).toSet
-//    computeDAO.instanceMetadata.values.map(_.keys).flatten.toSet shouldBe Set("startup-script")
-  }
-
-  // TODO: remove this test once data syncing release is complete
-  it should "label and start an outdated cluster" in isolatedDbTest {
-    val publisherQueue = QueueFactory.makePublisherQueue()
-    implicit val runtimeInstances = new RuntimeInstances[IO](dataprocInterp, gceInterp)
-    val leo = makeLeo(publisherQueue)
-    // create the cluster
-    val request = testClusterRequest.copy(labels = Map("TEST_ONLY_DEPLOY_WELDER" -> "yes"))
-    val cluster = leo.createCluster(userInfo, project, name1, request)(traceId).unsafeToFuture.futureValue
-
-    // check that the cluster was created
-    dbFutureValue(clusterQuery.getClusterById(cluster.id)).map(_.status) shouldBe Some(RuntimeStatus.Creating)
-
-    // set its status to Stopped and update its createdDate
-    dbFutureValue(clusterQuery.updateClusterStatus(cluster.id, RuntimeStatus.Stopped, Instant.now))
-    dbFutureValue {
-      clusterQuery.updateClusterCreatedDate(cluster.id,
-                                            new SimpleDateFormat("yyyy-MM-dd").parse("2018-12-31").toInstant)
-    }
-
-    // start the cluster
-    leo.startCluster(userInfo, project, name1).unsafeToFuture.futureValue
-
-    // cluster status should Starting and have new label
-    val getClusterKey = LeoLenses.createRuntimeRespToGetClusterKey.get(cluster)
-    val dbCluster = dbFutureValue(clusterQuery.getClusterByUniqueKey(getClusterKey)).get
-    val validateStatus = withLeoPublisher(publisherQueue) {
-      for {
-        status <- clusterQuery.getClusterStatus(cluster.id).transaction
-        message <- publisherQueue.tryDequeue1
-      } yield {
-        status shouldBe Some(RuntimeStatus.Starting)
-        message shouldBe (None)
-      }
-    }
-
-    dbCluster.labels.exists(_ == "welderInstallFailed" -> "true")
   }
 
   it should "extract labels properly" in {
@@ -1148,7 +629,7 @@ class LeonardoServiceSpec
 
   private def makeLeo(
     queue: InspectableQueue[IO, LeoPubsubMessage] = QueueFactory.makePublisherQueue()
-  )(implicit system: ActorSystem, runtimeInstances: RuntimeInstances[IO]): LeonardoService =
+  )(implicit system: ActorSystem): LeonardoService =
     new LeonardoService(dataprocConfig,
                         imageConfig,
                         MockWelderDAO,

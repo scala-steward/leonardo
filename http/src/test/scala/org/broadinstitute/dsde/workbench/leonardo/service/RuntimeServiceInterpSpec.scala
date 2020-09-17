@@ -24,6 +24,7 @@ import org.broadinstitute.dsde.workbench.leonardo.db._
 import org.broadinstitute.dsde.workbench.leonardo.http.service.RuntimeServiceInterp.PersistentDiskRequestResult
 import org.broadinstitute.dsde.workbench.leonardo.model.LeoException
 import org.broadinstitute.dsde.workbench.leonardo.TestUtils.leonardoExceptionEq
+import org.broadinstitute.dsde.workbench.leonardo.http.api.ListRuntimeResponse2
 import org.broadinstitute.dsde.workbench.leonardo.monitor.{LeoPubsubMessage, RuntimeConfigInCreateRuntimeMessage}
 import org.broadinstitute.dsde.workbench.leonardo.monitor.LeoPubsubMessage._
 import org.broadinstitute.dsde.workbench.leonardo.util.QueueFactory
@@ -78,7 +79,7 @@ class RuntimeServiceInterpSpec extends AnyFlatSpec with LeonardoTestSuite with T
     AppContext(model.TraceId("traceId"), Instant.now())
   )
 
-  "RuntimeService" should "fail with AuthorizationError if user doesn't have project level permission" in {
+  it should "fail with AuthorizationError if user doesn't have project level permission" in {
     val userInfo = UserInfo(OAuth2BearerToken(""), WorkbenchUserId("userId"), WorkbenchEmail("email"), 0)
     val googleProject = GoogleProject("googleProject")
 
@@ -95,6 +96,54 @@ class RuntimeServiceInterpSpec extends AnyFlatSpec with LeonardoTestSuite with T
       r shouldBe (Left(AuthorizationError(userInfo.userEmail)))
     }
     res.unsafeRunSync()
+  }
+
+  it should "throw ClusterAlreadyExistsException when creating a cluster with same name and project as an existing cluster" in isolatedDbTest {
+    runtimeService.createRuntime(userInfo, project, name0, emptyCreateRuntimeReq).unsafeRunSync()
+    val exc = runtimeService
+      .createRuntime(userInfo, project, name0, emptyCreateRuntimeReq)
+      .attempt
+      .unsafeRunSync()
+      .swap
+      .toOption
+      .get
+    exc shouldBe a[RuntimeAlreadyExistsException]
+  }
+
+  it should "throw a JupyterExtensionException when the extensionUri is too long" in isolatedDbTest {
+    // create the cluster
+    val clusterRequest = emptyCreateRuntimeReq.copy(userJupyterExtensionConfig =
+      Some(
+        UserJupyterExtensionConfig(nbExtensions =
+          Map("notebookExtension" -> s"gs://bucket/${Stream.continually('a').take(1025).mkString}")
+        )
+      )
+    )
+    val response =
+      runtimeService.createRuntime(userInfo, project, name0, clusterRequest).attempt.unsafeRunSync().swap.toOption.get
+
+    response shouldBe a[BucketObjectException]
+  }
+
+  it should "throw a JupyterExtensionException when the jupyterExtensionUri does not point to a GCS object" in isolatedDbTest {
+    // create the cluster
+    val response =
+      runtimeService
+        .createRuntime(
+          userInfo,
+          project,
+          name0,
+          emptyCreateRuntimeReq.copy(userJupyterExtensionConfig =
+            Some(UserJupyterExtensionConfig(nbExtensions = Map("notebookExtension" -> "gs://bogus/object.tar.gz")))
+          )
+        )
+        .attempt
+        .unsafeRunSync()
+        .swap
+        .toOption
+        .get
+
+    response shouldBe a[BucketObjectException]
   }
 
   it should "successfully create a GCE runtime when no runtime is specified" in isolatedDbTest {
@@ -422,6 +471,17 @@ class RuntimeServiceInterpSpec extends AnyFlatSpec with LeonardoTestSuite with T
     res.unsafeRunSync()
   }
 
+  it should "throw ClusterNotFoundException for nonexistent clusters" in isolatedDbTest {
+    val exc = runtimeService
+      .getRuntime(userInfo, GoogleProject("nonexistent"), RuntimeName("cluster"))
+      .attempt
+      .unsafeRunSync()
+      .swap
+      .toOption
+      .get
+    exc shouldBe a[RuntimeNotFoundException]
+  }
+
   it should "list runtimes" in isolatedDbTest {
     val userInfo = UserInfo(OAuth2BearerToken(""), WorkbenchUserId("userId"), WorkbenchEmail("user1@example.com"), 0) // this email is white listed
 
@@ -469,6 +529,112 @@ class RuntimeServiceInterpSpec extends AnyFlatSpec with LeonardoTestSuite with T
     }
 
     res.unsafeRunSync()
+  }
+
+  it should "list clusters with swagger-style labels" in isolatedDbTest {
+    // create a couple of clusters
+    val clusterName1 = RuntimeName(s"cluster-${UUID.randomUUID.toString}")
+    val req = emptyCreateRuntimeReq.copy(
+      labels = Map("bam" -> "yes", "vcf" -> "no", "foo" -> "bar"),
+      userJupyterExtensionConfig =
+        Some(UserJupyterExtensionConfig(Map("abc" -> "def"), Map("pqr" -> "pqr"), Map("xyz" -> "xyz"))),
+      defaultClientId = Some("ThisIsADefaultClientID"),
+      autopause = Some(true),
+      autopauseThreshold = Some(30 minutes)
+    )
+    runtimeService.createRuntime(userInfo, project, clusterName1, req).unsafeRunSync()
+    val runtime1 = runtimeService
+      .getRuntime(userInfo, project, clusterName1)
+      .unsafeRunSync()
+    val listRuntimeResponse1 = ListRuntimeResponse2(
+      runtime1.id,
+      runtime1.samResource,
+      runtime1.clusterName,
+      runtime1.googleProject,
+      runtime1.auditInfo,
+      runtime1.runtimeConfig,
+      runtime1.clusterUrl,
+      runtime1.status,
+      runtime1.labels,
+      runtime1.patchInProgress
+    )
+
+    val clusterName2 = RuntimeName(s"cluster-${UUID.randomUUID.toString}")
+    runtimeService
+      .createRuntime(userInfo, project, clusterName2, req.copy(labels = Map("a" -> "b", "foo" -> "bar")))
+      .unsafeRunSync()
+    val runtime2 = runtimeService
+      .getRuntime(userInfo, project, clusterName2)
+      .unsafeRunSync()
+    val listRuntimeResponse2 = ListRuntimeResponse2(
+      runtime2.id,
+      runtime2.samResource,
+      runtime2.clusterName,
+      runtime2.googleProject,
+      runtime2.auditInfo,
+      runtime2.runtimeConfig,
+      runtime2.clusterUrl,
+      runtime2.status,
+      runtime2.labels,
+      runtime2.patchInProgress
+    )
+
+    runtimeService.listRuntimes(userInfo, None, Map("_labels" -> "foo=bar")).unsafeRunSync().toSet shouldBe Set(
+      listRuntimeResponse1,
+      listRuntimeResponse2
+    )
+    runtimeService.listRuntimes(userInfo, None, Map("_labels" -> "foo=bar,bam=yes")).unsafeRunSync.toSet shouldBe Set(
+      listRuntimeResponse1
+    )
+    runtimeService
+      .listRuntimes(userInfo, None, Map("_labels" -> "foo=bar,bam=yes,vcf=no"))
+      .unsafeToFuture
+      .futureValue
+      .toSet shouldBe Set(listRuntimeResponse1)
+    runtimeService.listRuntimes(userInfo, None, Map("_labels" -> "a=b")).unsafeRunSync().toSet shouldBe Set(
+      listRuntimeResponse2
+    )
+    runtimeService.listRuntimes(userInfo, None, Map("_labels" -> "baz=biz")).unsafeRunSync().toSet shouldBe Set.empty
+    runtimeService.listRuntimes(userInfo, None, Map("_labels" -> "A=B")).unsafeRunSync().toSet shouldBe Set(
+      listRuntimeResponse2
+    ) // labels are not case sensitive because MySQL
+    runtimeService
+      .listRuntimes(userInfo, None, Map("_labels" -> "foo%3Dbar"))
+      .attempt
+      .unsafeRunSync()
+      .swap
+      .toOption
+      .get
+      .isInstanceOf[ParseLabelsException] shouldBe true
+    runtimeService
+      .listRuntimes(userInfo, None, Map("_labels" -> "foo=bar;bam=yes"))
+      .attempt
+      .unsafeRunSync()
+      .swap
+      .toOption
+      .get
+      .isInstanceOf[ParseLabelsException] shouldBe true
+    runtimeService
+      .listRuntimes(userInfo, None, Map("_labels" -> "foo=bar,bam"))
+      .attempt
+      .unsafeRunSync()
+      .swap
+      .toOption
+      .get
+      .isInstanceOf[ParseLabelsException] shouldBe true
+    runtimeService
+      .listRuntimes(userInfo, None, Map("_labels" -> "bogus"))
+      .attempt
+      .unsafeRunSync()
+      .swap
+      .toOption
+      .get
+      .asInstanceOf[ParseLabelsException] shouldBe true
+    runtimeService
+      .listRuntimes(userInfo, None, Map("_labels" -> "a,b"))
+      .attempt
+      .unsafeRunSync()
+      .asInstanceOf[ParseLabelsException] shouldBe true
   }
 
   it should "delete a runtime" in isolatedDbTest {

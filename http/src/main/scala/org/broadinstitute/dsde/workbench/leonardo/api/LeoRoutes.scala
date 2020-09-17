@@ -10,16 +10,16 @@ import akka.http.scaladsl.model._
 import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server._
 import akka.stream.Materializer
-import cats.effect.{ContextShift, IO, Timer}
+import cats.effect.{ContextShift, IO}
 import cats.mtl.ApplicativeAsk
 import com.typesafe.scalalogging.LazyLogging
-import LeoRoutesJsonCodec._
-import LeoRoutesSprayJsonCodec._
 import de.heikoseeberger.akkahttpcirce.ErrorAccumulatingCirceSupport._
-import org.broadinstitute.dsde.workbench.leonardo.http.api.RouteValidation._
 import org.broadinstitute.dsde.workbench.leonardo.api.CookieSupport
+import org.broadinstitute.dsde.workbench.leonardo.http.api.LeoRoutesJsonCodec._
+import org.broadinstitute.dsde.workbench.leonardo.http.api.LeoRoutesSprayJsonCodec._
+import org.broadinstitute.dsde.workbench.leonardo.http.api.RouteValidation._
 import org.broadinstitute.dsde.workbench.leonardo.http.service.{CreateRuntimeRequest, LeonardoService}
-import org.broadinstitute.dsde.workbench.leonardo.model.{LeoException}
+import org.broadinstitute.dsde.workbench.leonardo.model.LeoException
 import org.broadinstitute.dsde.workbench.model._
 import org.broadinstitute.dsde.workbench.model.google.GoogleProject
 
@@ -36,11 +36,8 @@ class LeoRoutes(
 )(implicit val system: ActorSystem,
   val materializer: Materializer,
   val executionContext: ExecutionContext,
-  val cs: ContextShift[IO],
-  timer: Timer[IO])
+  val cs: ContextShift[IO])
     extends LazyLogging {
-
-  import io.opencensus.scala.akka.http.TracingDirective._
 
   val route: Route =
     userInfoDirectives.requireUserInfo { userInfo =>
@@ -74,77 +71,11 @@ class LeoRoutes(
                           .map(cluster => StatusCodes.OK -> cluster)
                       }
                     }
-                  } ~
-                    get {
-                      complete {
-                        leonardoService
-                          .getClusterAPI(userInfo, GoogleProject(googleProject), clusterName)
-                          .map(clusterDetails => StatusCodes.OK -> clusterDetails)
-                      }
-                    } ~
-                    delete {
-                      complete {
-                        leonardoService
-                          .deleteCluster(userInfo, GoogleProject(googleProject), clusterName)
-                          .as(StatusCodes.Accepted)
-                      }
-                    }
-                } ~
-                  path("stop") {
-                    traceRequestForService(serviceData) { span => // Use `LABEL:service.name:leonardo` to find the span on stackdriver console
-                      post {
-                        complete {
-                          for {
-                            implicit0(ctx: ApplicativeAsk[IO, AppContext]) <- AppContext.lift[IO](Some(span))
-                            res <- leonardoService
-                              .stopCluster(userInfo, GoogleProject(googleProject), clusterName)
-                              .as(StatusCodes.Accepted)
-                            _ <- IO(span.end())
-                          } yield res
-                        }
-                      }
-                    }
-                  } ~
-                  path("start") {
-                    traceRequestForService(serviceData) { span =>
-                      post {
-                        complete {
-                          for {
-                            implicit0(ctx: ApplicativeAsk[IO, AppContext]) <- AppContext.lift[IO](Some(span))
-                            res <- leonardoService
-                              .startCluster(userInfo, GoogleProject(googleProject), clusterName)
-                              .as(StatusCodes.Accepted)
-                            _ <- IO(span.end())
-                          } yield res
-                        }
-                      }
-                    }
                   }
+                }
               }
             }
-        } ~
-          pathPrefix("clusters") {
-            parameterMap { params =>
-              path(Segment) { googleProject =>
-                get {
-                  complete {
-                    leonardoService
-                      .listClusters(userInfo, params, Some(GoogleProject(googleProject)))
-                      .map(clusters => StatusCodes.OK -> clusters)
-                  }
-                }
-              } ~
-                pathEndOrSingleSlash {
-                  get {
-                    complete {
-                      leonardoService
-                        .listClusters(userInfo, params)
-                        .map(clusters => StatusCodes.OK -> clusters)
-                    }
-                  }
-                }
-            }
-          }
+        }
       }
     }
 }

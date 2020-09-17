@@ -1,5 +1,5 @@
-package org.broadinstitute.dsde.workbench.leonardo
-package http
+package org.broadinstitute.dsde.workbench
+package leonardo
 
 import akka.actor.ActorSystem
 import cats.effect.Sync
