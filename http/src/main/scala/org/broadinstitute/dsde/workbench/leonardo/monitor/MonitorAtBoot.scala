@@ -22,7 +22,11 @@ class MonitorAtBoot[F[_]: Timer](publisherQueue: fs2.concurrent.Queue[F, LeoPubs
 ) {
   val process: Stream[F, Unit] = {
     implicit val traceId = ApplicativeAsk.const[F, TraceId](TraceId("BootMonitoring"))
-    val res = clusterQuery.listMonitored
+    Stream.eval(processRuntimes) ++ Stream.eval(processApps)
+  }
+
+  private def processRuntimes(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit] =
+    clusterQuery.listMonitored
       .transaction[F]
       .attempt
       .flatMap {
@@ -30,7 +34,7 @@ class MonitorAtBoot[F[_]: Timer](publisherQueue: fs2.concurrent.Queue[F, LeoPubs
           clusters.toList.traverse_ {
             case c if c.status.isMonitored && c.status != RuntimeStatus.Unknown =>
               val r = for {
-                tid <- traceId.ask
+                tid <- ev.ask
                 message <- runtimeStatusToMessage(c, tid)
                 // If a runtime is in transition status (Creating, Starting etc), then we're enqueue a pubsub message again
                 _ <- message.traverse(m => publisherQueue.enqueue1(m))
@@ -63,8 +67,9 @@ class MonitorAtBoot[F[_]: Timer](publisherQueue: fs2.concurrent.Queue[F, LeoPubs
         case Left(e) => logger.error(e)("Error starting retrieve runtimes that need to be monitored during startup")
       }
 
-    Stream.eval(res)
-  }
+  private def processApps(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit] =
+    // TODO
+    F.unit
 
   private def runtimeStatusToMessage(runtime: RuntimeToMonitor, traceId: TraceId): F[Option[LeoPubsubMessage]] =
     runtime.status match {
