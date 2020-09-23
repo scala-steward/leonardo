@@ -119,14 +119,15 @@ class MonitorAtBoot[F[_]: Timer](publisherQueue: fs2.concurrent.Queue[F, LeoPubs
         for {
           action <- (cluster.status, nodepool.status) match {
             case (KubernetesClusterStatus.Provisioning, _) =>
-              F.fromOption(
-                  cluster.nodepools.find(_.isDefault),
-                  MonitorAtBootException(
-                    s"Default nodepool not found for cluster ${cluster.id} in Provisioning status",
-                    traceId
+              F.delay(println("XXX " + cluster.nodepools.map(n => s"${n.id} - ${n.isDefault}").mkString(", "))) >>
+                F.fromOption(
+                    cluster.nodepools.find(_.isDefault),
+                    MonitorAtBootException(
+                      s"Default nodepool not found for cluster ${cluster.id} in Provisioning status",
+                      traceId
+                    )
                   )
-                )
-                .map(dnp => Some(ClusterNodepoolAction.CreateClusterAndNodepool(cluster.id, dnp.id, nodepool.id)))
+                  .map(dnp => Some(ClusterNodepoolAction.CreateClusterAndNodepool(cluster.id, dnp.id, nodepool.id)))
             case (KubernetesClusterStatus.Running, NodepoolStatus.Provisioning) =>
               F.pure(Some(ClusterNodepoolAction.CreateNodepool(nodepool.id)))
             case (KubernetesClusterStatus.Running, NodepoolStatus.Running) =>
