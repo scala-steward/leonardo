@@ -8,7 +8,7 @@ import fs2.Stream
 import io.chrisdavenport.log4cats.Logger
 import org.broadinstitute.dsde.workbench.leonardo.db._
 import org.broadinstitute.dsde.workbench.leonardo.http.dbioToIO
-import org.broadinstitute.dsde.workbench.leonardo.monitor.LeoPubsubMessage.CreateAppMessage
+import org.broadinstitute.dsde.workbench.leonardo.monitor.LeoPubsubMessage.{CreateAppMessage, DeleteAppMessage}
 import org.broadinstitute.dsde.workbench.model.TraceId
 import org.broadinstitute.dsde.workbench.openTelemetry.OpenTelemetryMetrics
 
@@ -81,12 +81,12 @@ class MonitorAtBoot[F[_]: Timer](publisherQueue: fs2.concurrent.Queue[F, LeoPubs
               msg <- appStatusToMessage(a, n, c, traceId)
               _ <- publisherQueue.enqueue1(msg)
             } yield ()
-            res = pub.handleErrorWith(e => logger.error(e)(s"Error transitioning app ${a.id}"))
+            res = pub.handleErrorWith(e => logger.error(e)(s"MonitorAtBoot: Error monitoring app ${a.id}"))
           } yield res
           _ <- publishMessages.sequence_
         } yield ()
 
-      case Left(e) => logger.error(e)("Error retrieving apps that need to be monitored during startup")
+      case Left(e) => logger.error(e)("MonitorAtBoot: Error retrieving apps that need to be monitored during startup")
     }
 
   private def appStatusToMessage(app: App,
@@ -114,18 +114,29 @@ class MonitorAtBoot[F[_]: Timer](publisherQueue: fs2.concurrent.Queue[F, LeoPubs
                 )
               )
           }
+          diskIdOpt = app.appResources.disk.flatMap(d => if (d.status == DiskStatus.Creating) Some(d.id) else None)
           msg = CreateAppMessage(
             cluster.googleProject,
             action,
             app.id,
             app.appName,
-            None, // TODO diskResultOpt.flatMap(d => if (d.creationNeeded) Some(d.disk.id) else None),
+            diskIdOpt,
             app.customEnvironmentVariables,
             Some(traceId)
           )
         } yield msg
 
-      // TODO other cases
+      case AppStatus.Deleting =>
+        F.pure(
+          DeleteAppMessage(
+            app.id,
+            app.appName,
+            nodepool.id,
+            cluster.googleProject,
+            None, // Assume we do not want to delete the disk, since we don't currently persist that information
+            Some(traceId)
+          )
+        )
 
       case x => F.raiseError(new RuntimeException(s"Unexpected status for app ${app.id}: ${x}"))
     }
