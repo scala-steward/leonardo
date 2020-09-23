@@ -379,6 +379,9 @@ object AppStatus {
 
   val deletableStatuses: Set[AppStatus] =
     Set(Unspecified, Running, Error)
+
+  val monitoredStatuses: Set[AppStatus] =
+    Set(Deleting, Provisioning)
 }
 
 final case class KubernetesService(id: ServiceId, config: ServiceConfig)

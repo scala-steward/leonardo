@@ -6,8 +6,9 @@ import cats.implicits._
 import cats.mtl.ApplicativeAsk
 import fs2.Stream
 import io.chrisdavenport.log4cats.Logger
-import org.broadinstitute.dsde.workbench.leonardo.db.{clusterQuery, patchQuery, DbReference, RuntimeConfigQueries}
+import org.broadinstitute.dsde.workbench.leonardo.db._
 import org.broadinstitute.dsde.workbench.leonardo.http.dbioToIO
+import org.broadinstitute.dsde.workbench.leonardo.monitor.LeoPubsubMessage.CreateAppMessage
 import org.broadinstitute.dsde.workbench.model.TraceId
 import org.broadinstitute.dsde.workbench.openTelemetry.OpenTelemetryMetrics
 
@@ -64,12 +65,70 @@ class MonitorAtBoot[F[_]: Timer](publisherQueue: fs2.concurrent.Queue[F, LeoPubs
               } yield ()
               r.handleErrorWith(e => logger.error(e)(s"Error transitioning ${c.id}"))
           }
-        case Left(e) => logger.error(e)("Error starting retrieve runtimes that need to be monitored during startup")
+        case Left(e) => logger.error(e)("Error retrieving runtimes that need to be monitored during startup")
       }
 
   private def processApps(implicit ev: ApplicativeAsk[F, TraceId]): F[Unit] =
-    // TODO
-    F.unit
+    KubernetesServiceDbQueries.listMonitoredApps.transaction.attempt.flatMap {
+      case Right(clusters) =>
+        for {
+          traceId <- ev.ask
+          publishMessages = for {
+            c <- clusters
+            n <- c.nodepools
+            a <- n.apps
+            pub = for {
+              msg <- appStatusToMessage(a, n, c, traceId)
+              _ <- publisherQueue.enqueue1(msg)
+            } yield ()
+            res = pub.handleErrorWith(e => logger.error(e)(s"Error transitioning app ${a.id}"))
+          } yield res
+          _ <- publishMessages.sequence_
+        } yield ()
+
+      case Left(e) => logger.error(e)("Error retrieving apps that need to be monitored during startup")
+    }
+
+  private def appStatusToMessage(app: App,
+                                 nodepool: Nodepool,
+                                 cluster: KubernetesCluster,
+                                 traceId: TraceId): F[LeoPubsubMessage] =
+    app.status match {
+      case AppStatus.Provisioning =>
+        for {
+          action <- (cluster.status, nodepool.status) match {
+            case (KubernetesClusterStatus.Provisioning, _) =>
+              F.fromOption(
+                  cluster.nodepools.find(_.isDefault),
+                  new RuntimeException(s"Default nodepool not found for cluster ${cluster.id} in Provisioning status")
+                )
+                .map(dnp => Some(ClusterNodepoolAction.CreateClusterAndNodepool(cluster.id, dnp.id, nodepool.id)))
+            case (KubernetesClusterStatus.Running, NodepoolStatus.Provisioning) =>
+              F.pure(Some(ClusterNodepoolAction.CreateNodepool(nodepool.id)))
+            case (KubernetesClusterStatus.Running, NodepoolStatus.Running) =>
+              F.pure(none[ClusterNodepoolAction])
+            case (cs, ns) =>
+              F.raiseError(
+                new RuntimeException(
+                  s"Unexpected cluster status [${cs.toString} or nodepool status [${ns.toString}] for app ${app.id} in Provisioning status. Do nothing"
+                )
+              )
+          }
+          msg = CreateAppMessage(
+            cluster.googleProject,
+            action,
+            app.id,
+            app.appName,
+            None, // TODO diskResultOpt.flatMap(d => if (d.creationNeeded) Some(d.disk.id) else None),
+            app.customEnvironmentVariables,
+            Some(traceId)
+          )
+        } yield msg
+
+      // TODO other cases
+
+      case x => F.raiseError(new RuntimeException(s"Unexpected status for app ${app.id}: ${x}"))
+    }
 
   private def runtimeStatusToMessage(runtime: RuntimeToMonitor, traceId: TraceId): F[Option[LeoPubsubMessage]] =
     runtime.status match {
@@ -135,7 +194,7 @@ class MonitorAtBoot[F[_]: Timer](publisherQueue: fs2.concurrent.Queue[F, LeoPubs
             )
           )
         }
-      case x => logger.info(s"${runtime.id} is in ${x} status. Do nothing").as(none[LeoPubsubMessage])
+      case x => logger.info(s"Runtime ${runtime.id} is in ${x} status. Do nothing").as(none[LeoPubsubMessage])
     }
 }
 
