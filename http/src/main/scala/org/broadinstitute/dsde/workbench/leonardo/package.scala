@@ -15,6 +15,7 @@ import org.broadinstitute.dsde.workbench.errorReporting.ReportWorthy
 import org.broadinstitute.dsde.workbench.leonardo.db.DBIOOps
 import org.broadinstitute.dsde.workbench.leonardo.monitor.{
   InvalidMonitorRequest,
+  MonitorAtBootException,
   RuntimeConfigInCreateRuntimeMessage,
   RuntimeMonitor
 }
@@ -86,9 +87,10 @@ package object http {
 
   implicit val throwableReportWorthy: ReportWorthy[Throwable] = e =>
     e match {
-      case _: SQLDataException      => true
-      case _: InvalidMonitorRequest => true
-      case _                        => false
+      case _: SQLDataException       => true
+      case _: InvalidMonitorRequest  => true
+      case _: MonitorAtBootException => true
+      case _                         => false
     }
 }
 

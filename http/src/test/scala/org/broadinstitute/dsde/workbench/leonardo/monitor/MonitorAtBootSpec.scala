@@ -88,8 +88,10 @@ class MonitorAtBootSpec extends AnyFlatSpec with TestComponent with LeonardoTest
     res.unsafeRunSync()
   }
 
+  // TODO test app
+
   def createMonitorAtBoot(
     queue: InspectableQueue[IO, LeoPubsubMessage] = InspectableQueue.bounded[IO, LeoPubsubMessage](10).unsafeRunSync
   ): MonitorAtBoot[IO] =
-    new MonitorAtBoot[IO](queue)
+    new MonitorAtBoot[IO](queue, org.broadinstitute.dsde.workbench.errorReporting.FakeErrorReporting)
 }
