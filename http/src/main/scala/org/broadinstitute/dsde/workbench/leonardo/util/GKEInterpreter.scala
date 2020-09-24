@@ -6,9 +6,10 @@ import java.util.Base64
 
 import _root_.io.chrisdavenport.log4cats.StructuredLogger
 import cats.Parallel
-import cats.effect.{Async, Blocker, ConcurrentEffect, ContextShift, IO, Timer}
+import cats.effect.{ContextShift, Async, Blocker, Timer, ConcurrentEffect, IO}
 import cats.implicits._
 import cats.mtl.ApplicativeAsk
+import com.google.api.services.container.model.SandboxConfig
 import com.google.auth.oauth2.GoogleCredentials
 import com.google.container.v1._
 import org.broadinstitute.dsde.workbench.DoneCheckable
@@ -19,24 +20,18 @@ import org.broadinstitute.dsde.workbench.google.GoogleIamDAO
 import org.broadinstitute.dsde.workbench.google.GoogleUtilities.RetryPredicates._
 import org.broadinstitute.dsde.workbench.google2.GKEModels._
 import org.broadinstitute.dsde.workbench.google2.streamFUntilDone
-import org.broadinstitute.dsde.workbench.google2.{KubernetesClusterNotFoundException, KubernetesModels}
+import org.broadinstitute.dsde.workbench.google2.{KubernetesModels, KubernetesClusterNotFoundException}
 import org.broadinstitute.dsde.workbench.google2.tracedRetryGoogleF
-import org.broadinstitute.dsde.workbench.google2.KubernetesModels.{
-  KubernetesNamespace,
-  KubernetesPodStatus,
-  KubernetesSecret,
-  KubernetesSecretType,
-  PodStatus
-}
-import org.broadinstitute.dsde.workbench.google2.KubernetesSerializableName.{NamespaceName, ServiceAccountName}
+import org.broadinstitute.dsde.workbench.google2.KubernetesModels.{KubernetesSecret, PodStatus, KubernetesNamespace, KubernetesPodStatus, KubernetesSecretType}
+import org.broadinstitute.dsde.workbench.google2.KubernetesSerializableName.{ServiceAccountName, NamespaceName}
 import org.broadinstitute.dsde.workbench.google2.util.RetryPredicates
 import org.broadinstitute.dsde.workbench.leonardo.config._
 import org.broadinstitute.dsde.workbench.leonardo.dao.GalaxyDAO
-import org.broadinstitute.dsde.workbench.leonardo.db.{DbReference, kubernetesClusterQuery, nodepoolQuery, _}
+import org.broadinstitute.dsde.workbench.leonardo.db.{kubernetesClusterQuery, nodepoolQuery, DbReference, _}
 import org.broadinstitute.dsde.workbench.leonardo.http._
 import org.broadinstitute.dsde.workbench.leonardo.http.service.AppNotFoundException
 import org.broadinstitute.dsde.workbench.model.{IP, WorkbenchEmail}
-import org.broadinstitute.dsp.{AuthContext, HelmAlgebra, Release}
+import org.broadinstitute.dsp.{AuthContext, Release, HelmAlgebra}
 
 import scala.collection.JavaConverters._
 import scala.concurrent.ExecutionContext
@@ -251,7 +246,7 @@ class GKEInterpreter[F[_]: Parallel: ContextShift: Timer](
 
       req = KubernetesCreateNodepoolRequest(
         dbCluster.getGkeClusterId,
-        buildGoogleNodepool(dbNodepool)
+        buildLegacyGoogleNodepool(dbNodepool)
       )
       op <- gkeService.createNodepool(req)
     } yield CreateNodepoolResult(KubernetesOperationId(dbCluster.googleProject, dbCluster.location, op.getName))
@@ -711,14 +706,13 @@ class GKEInterpreter[F[_]: Parallel: ContextShift: Timer](
 
   private[util] def buildLegacyGoogleNodepool(nodepool: Nodepool): com.google.api.services.container.model.NodePool = {
     val legacyGoogleNodepool = new com.google.api.services.container.model.NodePool()
-      .setConfig(new com.google.api.services.container.model.NodeConfig().setMachineType(nodepool.machineType.value))
       .setInitialNodeCount(nodepool.numNodes.amount)
       .setName(nodepool.nodepoolName.value)
       .setManagement(
         new com.google.api.services.container.model.NodeManagement().setAutoUpgrade(true).setAutoRepair(true)
       )
 
-    nodepool.autoscalingConfig.fold(legacyGoogleNodepool)(config =>
+    val nodepoolWithAutoscaling = nodepool.autoscalingConfig.fold(legacyGoogleNodepool)(config =>
       nodepool.autoscalingEnabled match {
         case true =>
           legacyGoogleNodepool.setAutoscaling(
@@ -730,6 +724,18 @@ class GKEInterpreter[F[_]: Parallel: ContextShift: Timer](
         case false => legacyGoogleNodepool
       }
     )
+
+    // we only want to sandbox non-default nodepools
+    val initialNodeConfig = new com.google.api.services.container.model.NodeConfig().setMachineType(nodepool.machineType.value)
+    val nodeConfig = nodepool.isDefault match {
+      case true => initialNodeConfig
+      case false => initialNodeConfig
+        .setSandboxConfig(new SandboxConfig().setType("gvisor"))
+        .setImageType("cos_containerd")
+        .setLabels(Map[String,String]("cloud.google.com/gke-smt-disabled" -> "false").asJava)
+    }
+
+    nodepoolWithAutoscaling.setConfig(nodeConfig)
   }
 
   private[util] def buildGalaxyChartOverrideValuesString(appName: AppName,
