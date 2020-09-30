@@ -11,7 +11,7 @@ import org.broadinstitute.dsde.workbench.leonardo.monitor.ClusterNodepoolAction.
   CreateClusterAndNodepool,
   CreateNodepool
 }
-import org.broadinstitute.dsde.workbench.leonardo.monitor.LeoPubsubMessage.CreateAppMessage
+import org.broadinstitute.dsde.workbench.leonardo.monitor.LeoPubsubMessage.{CreateAppMessage, DeleteAppMessage}
 import org.broadinstitute.dsde.workbench.leonardo.{
   AppStatus,
   DiskStatus,
@@ -188,11 +188,49 @@ class MonitorAtBootSpec extends AnyFlatSpec with TestComponent with LeonardoTest
     res.unsafeRunSync()
   }
 
-  // TODO
+  it should "recover AppStatus.Deleting properly" in isolatedDbTest {
+    val res = for {
+      queue <- InspectableQueue.bounded[IO, LeoPubsubMessage](10)
+      monitorAtBoot = createMonitorAtBoot(queue)
+      cluster <- IO(makeKubeCluster(1).copy(status = KubernetesClusterStatus.Running).save())
+      nodepool <- IO(makeNodepool(2, cluster.id).copy(status = NodepoolStatus.Deleting).save())
+      disk <- makePersistentDisk(None).copy(status = DiskStatus.Ready).save()
+      app = makeApp(1, nodepool.id).copy(status = AppStatus.Deleting)
+      appWithDisk = LeoLenses.appToDisk.set(Some(disk))(app)
+      savedApp <- IO(appWithDisk.save())
+      _ <- monitorAtBoot.process.take(1).compile.drain
+      msg <- queue.tryDequeue1
+    } yield {
+      val expected = DeleteAppMessage(
+        savedApp.id,
+        savedApp.appName,
+        nodepool.id,
+        cluster.googleProject,
+        None,
+        None
+      )
+      (msg eqv Some(expected)) shouldBe true
+    }
+    res.unsafeRunSync()
+  }
 
-  it should "recover AppStatus.Deleting properly" in isolatedDbTest {}
-
-  it should "ignore non-monitored apps" in isolatedDbTest {}
+  it should "ignore non-monitored apps" in isolatedDbTest {
+    val res = for {
+      queue <- InspectableQueue.bounded[IO, LeoPubsubMessage](10)
+      monitorAtBoot = createMonitorAtBoot(queue)
+      cluster <- IO(makeKubeCluster(1).copy(status = KubernetesClusterStatus.Running).save())
+      nodepool <- IO(makeNodepool(2, cluster.id).copy(status = NodepoolStatus.Running).save())
+      disk <- makePersistentDisk(None).copy(status = DiskStatus.Ready).save()
+      app = makeApp(1, nodepool.id).copy(status = AppStatus.Running)
+      appWithDisk = LeoLenses.appToDisk.set(Some(disk))(app)
+      savedApp <- IO(appWithDisk.save())
+      _ <- monitorAtBoot.process.take(1).compile.drain
+      msg <- queue.tryDequeue1
+    } yield {
+      msg shouldBe None
+    }
+    res.unsafeRunSync()
+  }
 
   def createMonitorAtBoot(
     queue: InspectableQueue[IO, LeoPubsubMessage] = InspectableQueue.bounded[IO, LeoPubsubMessage](10).unsafeRunSync
