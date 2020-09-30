@@ -151,6 +151,8 @@ object persistentDiskQuery extends TableQuery(new PersistentDiskTable(_)) {
       }
     } yield r
 
+//  def getDiskForApp
+
   private[db] def marshalPersistentDisk(disk: PersistentDisk): PersistentDiskRecord =
     PersistentDiskRecord(
       disk.id,

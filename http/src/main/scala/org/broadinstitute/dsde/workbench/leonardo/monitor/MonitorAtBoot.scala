@@ -26,20 +26,22 @@ class MonitorAtBoot[F[_]: Timer](publisherQueue: fs2.concurrent.Queue[F, LeoPubs
 ) {
   implicit private val traceId = ApplicativeAsk.const[F, TraceId](TraceId("BootMonitoring"))
 
-  private val processRuntimes: Stream[F, Unit] = monitoredRuntimes
-    .parEvalMapUnordered(10)(r => handleRuntime(r) >> handleRuntimePatchInProgress(r))
-    .handleErrorWith(e =>
-      Stream
-        .eval(logger.error(e)("MonitorAtBoot: Error retrieving runtimes that need to be monitored during startup"))
-    )
-
-  private val processApps: Stream[F, Unit] = monitoredApps
-    .parEvalMapUnordered(10) { case (a, n, c) => handleApp(a, n, c) }
-    .handleErrorWith(e =>
-      Stream.eval(logger.error(e)("MonitorAtBoot: Error retrieving apps that need to be monitored during startup"))
-    )
-
   val process: Stream[F, Unit] = processRuntimes ++ processApps
+
+  private def processRuntimes: Stream[F, Unit] =
+    monitoredRuntimes
+      .parEvalMapUnordered(10)(r => handleRuntime(r) >> handleRuntimePatchInProgress(r))
+      .handleErrorWith(e =>
+        Stream
+          .eval(logger.error(e)("MonitorAtBoot: Error retrieving runtimes that need to be monitored during startup"))
+      )
+
+  private def processApps: Stream[F, Unit] =
+    monitoredApps
+      .parEvalMapUnordered(10) { case (a, n, c) => handleApp(a, n, c) }
+      .handleErrorWith(e =>
+        Stream.eval(logger.error(e)("MonitorAtBoot: Error retrieving apps that need to be monitored during startup"))
+      )
 
   private def monitoredRuntimes: Stream[F, RuntimeToMonitor] =
     Stream.evals(clusterQuery.listMonitored.transaction.map(_.toList))
@@ -119,15 +121,14 @@ class MonitorAtBoot[F[_]: Timer](publisherQueue: fs2.concurrent.Queue[F, LeoPubs
         for {
           action <- (cluster.status, nodepool.status) match {
             case (KubernetesClusterStatus.Provisioning, _) =>
-              F.delay(println("XXX " + cluster.nodepools.map(n => s"${n.id} - ${n.isDefault}").mkString(", "))) >>
-                F.fromOption(
-                    cluster.nodepools.find(_.isDefault),
-                    MonitorAtBootException(
-                      s"Default nodepool not found for cluster ${cluster.id} in Provisioning status",
-                      traceId
-                    )
-                  )
-                  .map(dnp => Some(ClusterNodepoolAction.CreateClusterAndNodepool(cluster.id, dnp.id, nodepool.id)))
+              for {
+                dnpOpt <- nodepoolQuery.getDefaultNodepoolForCluster(cluster.id).transaction
+                dnp <- F.fromOption(dnpOpt,
+                                    MonitorAtBootException(
+                                      s"Default nodepool not found for cluster ${cluster.id} in Provisioning status",
+                                      traceId
+                                    ))
+              } yield Some(ClusterNodepoolAction.CreateClusterAndNodepool(cluster.id, dnp.id, nodepool.id))
             case (KubernetesClusterStatus.Running, NodepoolStatus.Provisioning) =>
               F.pure(Some(ClusterNodepoolAction.CreateNodepool(nodepool.id)))
             case (KubernetesClusterStatus.Running, NodepoolStatus.Running) =>

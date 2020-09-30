@@ -1,9 +1,17 @@
 package org.broadinstitute.dsde.workbench.leonardo.monitor
 
-import cats.effect.IO
 import cats.Eq
+import cats.effect.IO
 import cats.implicits._
 import fs2.concurrent.InspectableQueue
+import org.broadinstitute.dsde.workbench.leonardo.CommonTestData._
+import org.broadinstitute.dsde.workbench.leonardo.KubernetesTestData.{makeApp, makeKubeCluster, makeNodepool}
+import org.broadinstitute.dsde.workbench.leonardo.db.TestComponent
+import org.broadinstitute.dsde.workbench.leonardo.monitor.ClusterNodepoolAction.{
+  CreateClusterAndNodepool,
+  CreateNodepool
+}
+import org.broadinstitute.dsde.workbench.leonardo.monitor.LeoPubsubMessage.CreateAppMessage
 import org.broadinstitute.dsde.workbench.leonardo.{
   AppStatus,
   DiskStatus,
@@ -13,18 +21,8 @@ import org.broadinstitute.dsde.workbench.leonardo.{
   NodepoolStatus,
   RuntimeStatus
 }
-import org.broadinstitute.dsde.workbench.leonardo.db.{kubernetesClusterQuery, nodepoolQuery, TestComponent}
-import org.scalatest.flatspec.AnyFlatSpec
-import org.broadinstitute.dsde.workbench.leonardo.CommonTestData._
-import org.broadinstitute.dsde.workbench.leonardo.KubernetesTestData.{
-  makeApp,
-  makeKubeCluster,
-  makeNodepool,
-  makeService
-}
-import org.broadinstitute.dsde.workbench.leonardo.monitor.ClusterNodepoolAction.CreateClusterAndNodepool
-import org.broadinstitute.dsde.workbench.leonardo.monitor.LeoPubsubMessage.CreateAppMessage
 import org.scalatest.Assertions
+import org.scalatest.flatspec.AnyFlatSpec
 
 import scala.concurrent.ExecutionContext.Implicits.global
 
@@ -114,33 +112,83 @@ class MonitorAtBootSpec extends AnyFlatSpec with TestComponent with LeonardoTest
       monitorAtBoot = createMonitorAtBoot(queue)
       cluster <- IO(makeKubeCluster(1).copy(status = KubernetesClusterStatus.Provisioning).save())
       nodepool <- IO(makeNodepool(2, cluster.id).copy(status = NodepoolStatus.Provisioning).save())
-      _ <- IO(println("YYY " + cluster.nodepools.map(n => s"${n.id} - ${n.isDefault}").mkString(", ")))
       defaultNodepool = cluster.nodepools.find(_.isDefault).get
-      app <- IO(makeApp(1, nodepool.id).copy(status = AppStatus.Provisioning).save())
       disk <- makePersistentDisk(None).copy(status = DiskStatus.Creating).save()
+      app = makeApp(1, nodepool.id).copy(status = AppStatus.Provisioning)
+      appWithDisk = LeoLenses.appToDisk.set(Some(disk))(app)
+      savedApp <- IO(appWithDisk.save())
       _ <- monitorAtBoot.process.take(1).compile.drain
       msg <- queue.tryDequeue1
     } yield {
-      val expected = CreateAppMessage(cluster.googleProject,
-                                      Some(CreateClusterAndNodepool(cluster.id, defaultNodepool.id, nodepool.id)),
-                                      app.id,
-                                      app.appName,
-                                      Some(disk.id),
-                                      Map.empty,
-                                      None)
+      val expected = CreateAppMessage(
+        cluster.googleProject,
+        Some(CreateClusterAndNodepool(cluster.id, defaultNodepool.id, nodepool.id)),
+        savedApp.id,
+        savedApp.appName,
+        Some(disk.id),
+        Map.empty,
+        None
+      )
+      (msg eqv Some(expected)) shouldBe true
+    }
+    res.unsafeRunSync()
+  }
 
-      println(s"got: $msg")
-      println(s"expected: $msg")
+  it should "recover AppStatus.Provisioning properly with nodepool creation" in isolatedDbTest {
+    val res = for {
+      queue <- InspectableQueue.bounded[IO, LeoPubsubMessage](10)
+      monitorAtBoot = createMonitorAtBoot(queue)
+      cluster <- IO(makeKubeCluster(1).copy(status = KubernetesClusterStatus.Running).save())
+      nodepool <- IO(makeNodepool(2, cluster.id).copy(status = NodepoolStatus.Provisioning).save())
+      disk <- makePersistentDisk(None).copy(status = DiskStatus.Creating).save()
+      app = makeApp(1, nodepool.id).copy(status = AppStatus.Provisioning)
+      appWithDisk = LeoLenses.appToDisk.set(Some(disk))(app)
+      savedApp <- IO(appWithDisk.save())
+      _ <- monitorAtBoot.process.take(1).compile.drain
+      msg <- queue.tryDequeue1
+    } yield {
+      val expected = CreateAppMessage(
+        cluster.googleProject,
+        Some(CreateNodepool(nodepool.id)),
+        savedApp.id,
+        savedApp.appName,
+        Some(disk.id),
+        Map.empty,
+        None
+      )
+      (msg eqv Some(expected)) shouldBe true
+    }
+    res.unsafeRunSync()
+  }
+
+  it should "recover AppStatus.Provisioning properly" in isolatedDbTest {
+    val res = for {
+      queue <- InspectableQueue.bounded[IO, LeoPubsubMessage](10)
+      monitorAtBoot = createMonitorAtBoot(queue)
+      cluster <- IO(makeKubeCluster(1).copy(status = KubernetesClusterStatus.Running).save())
+      nodepool <- IO(makeNodepool(2, cluster.id).copy(status = NodepoolStatus.Running).save())
+      disk <- makePersistentDisk(None).copy(status = DiskStatus.Creating).save()
+      app = makeApp(1, nodepool.id).copy(status = AppStatus.Provisioning)
+      appWithDisk = LeoLenses.appToDisk.set(Some(disk))(app)
+      savedApp <- IO(appWithDisk.save())
+      _ <- monitorAtBoot.process.take(1).compile.drain
+      msg <- queue.tryDequeue1
+    } yield {
+      val expected = CreateAppMessage(
+        cluster.googleProject,
+        None,
+        savedApp.id,
+        savedApp.appName,
+        Some(disk.id),
+        Map.empty,
+        None
+      )
       (msg eqv Some(expected)) shouldBe true
     }
     res.unsafeRunSync()
   }
 
   // TODO
-
-  it should "recover AppStatus.Provisioning properly with nodepool creation" in isolatedDbTest {}
-
-  it should "recover AppStatus.Provisioning properly" in isolatedDbTest {}
 
   it should "recover AppStatus.Deleting properly" in isolatedDbTest {}
 
