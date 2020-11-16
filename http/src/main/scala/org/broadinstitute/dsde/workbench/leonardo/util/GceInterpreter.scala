@@ -234,12 +234,6 @@ class GceInterpreter[F[_]: Parallel: ContextShift](
                 .setValue(templateValues.jupyterStartUserScriptOutputUri)
                 .build()
             )
-            .addItems(
-              Items.newBuilder
-                .setKey("enable-guest-attributes")
-                .setValue("TRUE")
-                .build()
-            )
             .build()
         )
         .putAllLabels(Map("leonardo" -> "true").asJava)

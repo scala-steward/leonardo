@@ -239,6 +239,16 @@ object clusterQuery extends TableQuery(new ClusterTable(_)) {
     fullClusterQuery(baseQuery)
   }
 
+  def fullClusterRecordQueryByUniqueKey(googleProject: GoogleProject,
+                                        clusterName: RuntimeName,
+                                        destroyedDateOpt: Option[Instant]) = {
+    val destroyedDate = destroyedDateOpt.getOrElse(dummyDate)
+    clusterQuery
+      .filter(_.googleProject === googleProject)
+      .filter(_.clusterName === clusterName)
+      .filter(_.destroyedDate === destroyedDate)
+  }
+
   private def fullClusterQueryById(id: Long) =
     fullClusterQuery(findByIdQuery(id))
 
@@ -474,6 +484,17 @@ object clusterQuery extends TableQuery(new ClusterTable(_)) {
       rid <- findByIdQuery(id).result.head.map[RuntimeConfigId](_.runtimeConfigId): DBIO[RuntimeConfigId]
       _ <- RuntimeConfigQueries.updatePersistentDiskId(rid, None, destroyedDate): DBIO[Int]
     } yield ()
+
+  def markDeleted(googleProject: GoogleProject,
+                  runtimeName: RuntimeName,
+                  destroyedDate: Instant,
+                  deletedFrom: Option[String])(
+    implicit ec: ExecutionContext
+  ): DBIO[Unit] =
+    fullClusterRecordQueryByUniqueKey(googleProject, runtimeName, Some(dummyDate))
+      .map(c => (c.destroyedDate, c.status, c.hostIp, c.dateAccessed, c.deletedFrom))
+      .update((destroyedDate, RuntimeStatus.Deleted, None, destroyedDate, deletedFrom))
+      .map(_ => ())
 
   def updateDeletedFrom(id: Long, deletedFrom: String): DBIO[Int] =
     findByIdQuery(id)

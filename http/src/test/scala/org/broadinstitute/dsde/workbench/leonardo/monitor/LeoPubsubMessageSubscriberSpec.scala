@@ -19,10 +19,10 @@ import org.broadinstitute.dsde.workbench.google.mock._
 import org.broadinstitute.dsde.workbench.google2.KubernetesModels.PodStatus
 import org.broadinstitute.dsde.workbench.google2.KubernetesSerializableName.ServiceAccountName
 import org.broadinstitute.dsde.workbench.google2.mock.{
-  MockGKEService,
   FakeGoogleComputeService,
   MockComputePollOperation,
-  MockKubernetesService => WbLibsMockKubernetesService
+  MockGKEService
+//  MockKubernetesService => WbLibsMockKubernetesService
 }
 import org.broadinstitute.dsde.workbench.google2.{
   ComputePollOperation,
@@ -1632,45 +1632,6 @@ class LeoPubsubMessageSubscriberSpec
 
     res.unsafeRunSync()
     assertions.unsafeRunSync()
-  }
-
-  it should "handle deleteKubernetesClusterMessage" in isolatedDbTest {
-    val savedCluster = makeKubeCluster(1).save()
-
-    val gkeInterp =
-      new GKEInterpreter[IO](Config.gkeInterpConfig,
-                             vpcInterp,
-                             MockGKEService,
-                             WbLibsMockKubernetesService,
-                             MockHelm,
-                             MockGalaxyDAO,
-                             credentials,
-                             iamDAOKubernetes,
-                             whitelistAuthProvider,
-                             blocker)
-
-    val assertions = for {
-      clusterOpt <- kubernetesClusterQuery.getMinimalClusterById(savedCluster.id).transaction
-      getCluster = clusterOpt.get
-    } yield {
-      getCluster.status shouldBe KubernetesClusterStatus.Deleted
-    }
-
-    val res = for {
-      tr <- traceId.ask[TraceId]
-      msg = DeleteKubernetesClusterMessage(
-        savedCluster.id,
-        savedCluster.googleProject,
-        Some(tr)
-      )
-      queue <- InspectableQueue.bounded[IO, Task[IO]](10)
-      leoSubscriber = makeLeoSubscriber(asyncTaskQueue = queue, gkeInterp = gkeInterp)
-      asyncTaskProcessor = AsyncTaskProcessor(AsyncTaskProcessor.Config(10, 10), queue)
-      _ <- leoSubscriber.handleDeleteKubernetesClusterMessage(msg)
-      _ <- withInfiniteStream(asyncTaskProcessor.process, assertions, maxRetry = 50)
-    } yield ()
-
-    res.unsafeRunSync()
   }
 
   it should "be idempotent for create app" in isolatedDbTest {

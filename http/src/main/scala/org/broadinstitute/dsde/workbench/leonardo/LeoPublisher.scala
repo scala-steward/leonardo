@@ -51,6 +51,7 @@ final class LeoPublisher[F[_]: Logger: Timer](
           .newBuilder()
           .setData(byteString)
           .putAttributes("traceId", msg.traceId.map(_.asString).getOrElse("null"))
+          .putAttributes("leonardo", "true")
           .build()
       }
 
