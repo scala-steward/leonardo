@@ -442,6 +442,9 @@ object LeoPubsubCodec {
   implicit val batchNodepoolCreateDecoder: Decoder[BatchNodepoolCreateMessage] =
     Decoder.forProduct4("clusterId", "nodepools", "project", "traceId")(BatchNodepoolCreateMessage.apply)
 
+  implicit val deleteNodepoolMessage: Decoder[DeleteNodepoolMessage] =
+    Decoder.forProduct3("nodepoolId", "googleProject", "traceId")(DeleteNodepoolMessage.apply)
+
   implicit val leoPubsubMessageTypeDecoder: Decoder[LeoPubsubMessageType] = Decoder.decodeString.emap { x =>
     Either.catchNonFatal(LeoPubsubMessageType.withName(x)).leftMap(_.getMessage)
   }
@@ -462,6 +465,7 @@ object LeoPubsubCodec {
         case LeoPubsubMessageType.DeleteApp               => message.as[DeleteAppMessage]
         case LeoPubsubMessageType.DeleteKubernetesCluster => message.as[DeleteKubernetesClusterMessage]
         case LeoPubsubMessageType.BatchNodepoolCreate     => message.as[BatchNodepoolCreateMessage]
+        case LeoPubsubMessageType.DeleteNodepool          => message.as[DeleteNodepoolMessage]
       }
     } yield value
   }
@@ -733,6 +737,11 @@ object LeoPubsubCodec {
       (x.messageType, x.clusterId, x.nodepools, x.project, x.traceId)
     )
 
+  implicit val deleteNodepoolMessageEncoder: Encoder[DeleteNodepoolMessage] =
+    Encoder.forProduct4("messageType", "nodepoolId", "googleProject", "traceId")(x =>
+      (x.messageType, x.nodepoolId, x.googleProject, x.traceId)
+    )
+
   implicit val deleteAppMessageEncoder: Encoder[DeleteAppMessage] =
     Encoder.forProduct7("messageType", "appId", "appName", "nodepoolId", "project", "diskId", "traceId")(x =>
       (x.messageType, x.appId, x.appName, x.nodepoolId, x.project, x.diskId, x.traceId)
@@ -756,6 +765,7 @@ object LeoPubsubCodec {
     case m: DeleteAppMessage               => m.asJson
     case m: DeleteKubernetesClusterMessage => m.asJson
     case m: BatchNodepoolCreateMessage     => m.asJson
+    case m: DeleteNodepoolMessage          => m.asJson
   }
 }
 
