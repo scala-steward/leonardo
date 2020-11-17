@@ -85,6 +85,8 @@ class LeoPubsubMessageSubscriber[F[_]: Timer: ContextShift: Parallel](
         handleDeleteKubernetesClusterMessage(msg)
       case msg: BatchNodepoolCreateMessage =>
         handleBatchNodepoolCreateMessage(msg)
+      case msg: DeleteNodepoolMessage =>
+        handleDeleteNodepoolMessage(msg)
     }
 
   private[monitor] def messageHandler(event: Event[LeoPubsubMessage]): F[Unit] = {
@@ -890,6 +892,27 @@ class LeoPubsubMessageSubscriber[F[_]: Timer: ContextShift: Parallel](
       )
 
       _ <- asyncTasks.enqueue1(Task(ctx.traceId, task, Some(handleKubernetesError), ctx.now))
+    } yield ()
+
+  private[monitor] def handleDeleteNodepoolMessage(
+    msg: DeleteNodepoolMessage
+  )(implicit ev: ApplicativeAsk[F, AppContext]): F[Unit] =
+    for {
+      ctx <- ev.ask
+      // TODO: merge Rob's changes which adds locking to nodepool deletion in gkeInterp.deleteAndPollNodepool
+      task = gkeInterp.deleteAndPollNodepool(DeleteNodepoolParams(msg.nodepoolId, msg.googleProject)).adaptError {
+        case e =>
+          PubsubKubernetesError(
+            AppError(e.getMessage, ctx.now, ErrorAction.DeleteNodepool, ErrorSource.Nodepool, None),
+            None,
+            false, // TODO: should this be retryable?
+            Some(msg.nodepoolId),
+            None
+          )
+      }
+      _ <- asyncTasks.enqueue1(
+        Task(ctx.traceId, task, Some(handleKubernetesError), ctx.now)
+      )
     } yield ()
 
   private[monitor] def handleDeleteAppMessage(msg: DeleteAppMessage)(
