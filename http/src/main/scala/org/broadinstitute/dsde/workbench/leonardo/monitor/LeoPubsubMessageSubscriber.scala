@@ -899,7 +899,7 @@ class LeoPubsubMessageSubscriber[F[_]: Timer: ContextShift: Parallel](
   )(implicit ev: ApplicativeAsk[F, AppContext]): F[Unit] =
     for {
       ctx <- ev.ask
-      // TODO: merge Rob's changes which adds locking to nodepool deletion in gkeInterp.deleteAndPollNodepool
+      // TODO: once autostop PR changes are merged adds locking to nodepool deletion in gkeInterp.deleteAndPollNodepool
       task = gkeInterp.deleteAndPollNodepool(DeleteNodepoolParams(msg.nodepoolId, msg.googleProject)).adaptError {
         case e =>
           PubsubKubernetesError(
